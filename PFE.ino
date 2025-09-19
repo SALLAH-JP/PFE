@@ -7,40 +7,42 @@ void setup() {
   Wire.begin();
 
   // MPU init
-  mpu.initialize();
-  if (!mpu.testConnection()) {
-    Serial.println("Erreur MPU6050 !");
-    while (1);
-  }
-  Serial.println("MPU6050 Found!");
-  lastTime = millis();
+  initIMU();
 
   // IR Receiver Setup and interrupt
   IrReceiver.begin(2, ENABLE_LED_FEEDBACK);
 
 
   // Activer les moteurs
-  pinMode(ENA_PIN_L, OUTPUT);
-  pinMode(ENA_PIN_R, OUTPUT);
-  digitalWrite(ENA_PIN_L, HIGH);  // LOW = activé sur TB6600
-  digitalWrite(ENA_PIN_R, HIGH);
+  engine.init();
 
-  // Config AccelStepper
-  motorL.setMaxSpeed(500);      // vitesse max en pas/sec
-  motorR.setMaxSpeed(500);
+  // Moteur droit
+  motorR = engine.stepperConnectToPin(STEP_PIN_R);   // STEP droit
+  if (motorR) {
+    motorR->setDirectionPin(DIR_PIN_R);            // DIR droit
+    motorR->setEnablePin(ENA_PIN_R, false);               // EN droit
+    motorR->setAutoEnable(true);
+    //motorR->setAcceleration(1000);
+  }
 
-  motorR.setPinsInverted(true, false, false);
+  // Moteur gauche
+  motorL = engine.stepperConnectToPin(STEP_PIN_L);   // STEP gauche
+  if (motorL) {
+    motorL->setDirectionPin(DIR_PIN_L);            // DIR gauche
+    motorL->setEnablePin(ENA_PIN_L, false);               // EN gauche
+    motorL->setAutoEnable(true);
+    //motorL->setAcceleration(1000);
+  }
 
 
   // PID
-  myPID.SetOutputLimits(-500, 500);
-  myPID.SetMode(MANUAL);
+  pidA.SetSampleTime(10);
+  pidA.SetOutputLimits(-2000, 2000);
+  pidA.SetMode(AUTOMATIC);
 
-  // AutoTune
-  aTune.SetNoiseBand(aTuneNoise);
-  aTune.SetOutputStep(aTuneStep);
-  aTune.SetLookbackSec((int)aTuneLookBack);
-  Serial.println("=== AutoTune en cours... Ne touche pas le robot ===");
+  pidV.SetSampleTime(10);
+  pidV.SetOutputLimits(-5, 5); // par ex. correction d’angle en degrés max
+  pidV.SetMode(AUTOMATIC);
 
 }
 
@@ -48,39 +50,28 @@ void setup() {
 void loop() {
   remoteControl();
 
-  // Lire angle MPU6050
-  updateAngle();
-  Input = angle;
+  if (millis() - lastCmdTime >= 500) {
+    lastCmdTime = millis();
 
-  if (tuning) {
-    if (aTune.Runtime() != 0) {
-      tuning = false;
-      Kp = aTune.GetKp();
-      Ki = aTune.GetKi();
-      Kd = aTune.GetKd();
-      myPID.SetTunings(Kp, Ki, Kd);
-      myPID.SetMode(AUTOMATIC);
-
-      Serial.println("=== AutoTune terminé ===");
-      Serial.print("Kp="); Serial.println(Kp);
-      Serial.print("Ki="); Serial.println(Ki);
-      Serial.print("Kd="); Serial.println(Kd);
-    }
-  } else {
-    // mettre consigne en fonction des commandes
-    if (moveCmd == 1) Setpoint = 2;   // avance
-    else if (moveCmd == -1) Setpoint = -2; // recule
-    else Setpoint = 0; // stop
-
-
-    // Calcul PID
-    myPID.Compute();
-    Serial.print(Input); Serial.print(" =>"); Serial.println(Output);
-
-    setMotors(Output, turnCmd);
-
+    moveCmd = 0;  // stop
+    turnCmd = 0;
   }
 
-  motorL.runSpeed();
-  motorR.runSpeed();
+  inputV = (measureSpeed(motorR) + measureSpeed(motorR)) / 2;
+
+  pidV.Compute();
+  setpointA = EQUILIBRE + outputV;
+
+
+  if ( imu.getSensorEvent() == true && imu.getSensorEventID() == SENSOR_REPORTID_ROTATION_VECTOR) {
+
+    inputA = (imu.getPitch()) * 180.0 / PI;
+
+    pidA.Compute();
+    Serial.print(inputA); Serial.print(" => "); Serial.println(outputA);
+    
+  }
+
+  setMotors(outputA, turnCmd);
+
 }
