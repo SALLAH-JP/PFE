@@ -4,13 +4,13 @@
 void setup() {
   Serial.begin(115200);
 
-  Wire.begin();
+  Serial.println("Start Setup");
 
   // MPU init
   initIMU();
 
   // IR Receiver Setup and interrupt
-  IrReceiver.begin(2, ENABLE_LED_FEEDBACK);
+  IrReceiver.begin(IR_PIN, ENABLE_LED_FEEDBACK);
 
 
   // Activer les moteurs
@@ -22,7 +22,8 @@ void setup() {
     motorR->setDirectionPin(DIR_PIN_R);            // DIR droit
     motorR->setEnablePin(ENA_PIN_R, false);               // EN droit
     motorR->setAutoEnable(true);
-    //motorR->setAcceleration(1000);
+    motorR->setAcceleration(2000);
+    Serial.println("Motor Right OK !");
   }
 
   // Moteur gauche
@@ -31,47 +32,70 @@ void setup() {
     motorL->setDirectionPin(DIR_PIN_L);            // DIR gauche
     motorL->setEnablePin(ENA_PIN_L, false);               // EN gauche
     motorL->setAutoEnable(true);
-    //motorL->setAcceleration(1000);
+    motorL->setAcceleration(2000);
+    Serial.println("Motor Left OK !");
   }
 
 
+  // Tracking Sensor Setup
+  pinMode(LEFT_SENSOR_PIN, INPUT);
+  pinMode(RIGHT_SENSOR_PIN, INPUT);
+
   // PID
-  pidA.SetSampleTime(10);
-  pidA.SetOutputLimits(-2000, 2000);
+  pidA.SetSampleTime(5);
+  pidA.SetOutputLimits(-5000, 5000);
   pidA.SetMode(AUTOMATIC);
 
-  pidV.SetSampleTime(10);
-  pidV.SetOutputLimits(-5, 5); // par ex. correction d’angle en degrés max
+  pidV.SetSampleTime(5);
+  pidV.SetOutputLimits(-45, 45);
   pidV.SetMode(AUTOMATIC);
 
 }
 
 
 void loop() {
-  remoteControl();
-
-  if (millis() - lastCmdTime >= 500) {
-    lastCmdTime = millis();
-
-    moveCmd = 0;  // stop
+  if ( millis() - lastRemote > 100 ) {
+    moveCmd = 0;
     turnCmd = 0;
   }
 
-  inputV = (measureSpeed(motorR) + measureSpeed(motorR)) / 2;
+  remoteControl();
+  //pidA.SetTunings(KpA, KiA, KdA);
+  //pidV.SetTunings(KpV, KiV, KdV);
+  lineTracking();
+
+  unsigned long now = millis();
+
+  if (now - lastCmdTime >= 5) {
+    lastCmdTime = now;
+
+    currentMoveCmd += constrain(moveCmd - currentMoveCmd, -0.1, 0.1);
+    currentTurnCmd += constrain(turnCmd - currentTurnCmd, -1, 1);
+  }
+
+  inputV = measureSpeed();
 
   pidV.Compute();
   setpointA = EQUILIBRE + outputV;
 
 
-  if ( imu.getSensorEvent() == true && imu.getSensorEventID() == SENSOR_REPORTID_ROTATION_VECTOR) {
-
-    inputA = (imu.getPitch()) * 180.0 / PI;
+  if ( mpuInterrupt ) {
+    
+    inputA = getPitchIMU();
 
     pidA.Compute();
-    Serial.print(inputA); Serial.print(" => "); Serial.println(outputA);
+    //Serial.print(inputA); Serial.print(" => "); Serial.println(outputA);
     
   }
 
-  setMotors(outputA, turnCmd);
+  if (abs(inputA) < 2) balRate = 0;
+  else {
+    balRate = 1;
+    currentTurnCmd = 0;
+  }
+
+  //Serial.print(inputV); Serial.print(" => "); Serial.print(KpV); Serial.print(" => "); Serial.print(KiV); Serial.print(" => "); Serial.println(KdV);
+  Serial.print(currentMoveCmd); Serial.print(" => "); Serial.println(currentTurnCmd);
+  setMotors(outputA, currentTurnCmd);
 
 }
