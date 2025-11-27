@@ -1,47 +1,16 @@
-void dmpDataReady() {
-  mpuInterrupt = true;
-}
-
-void initIMU() {
-
-  // initialize device
-  Serial.println(F("Initializing I2C devices..."));
-  mpu.initialize();
-
-  Serial.println(mpu.testConnection() ? F("MPU6050 connection successful") : F("MPU6050 connection failed"));
-
-  mpu.setXGyroOffset(-76);
-  mpu.setYGyroOffset(-54);
-  mpu.setZGyroOffset(2);
-  mpu.setZAccelOffset(1384); 
-
-  // load and configure the DMP
-  Serial.println(F("Initializing DMP..."));
-  devStatus = mpu.dmpInitialize();
-  // make sure it worked (returns 0 if so)
-  if (devStatus == 0) {
-
-    mpu.setDMPEnabled(true);
-
-    attachInterrupt(digitalPinToInterrupt(2), dmpDataReady, RISING);
-    mpuIntStatus = mpu.getIntStatus();
-    // set our DMP Ready flag so the main loop() function knows it's okay to use it
-    Serial.println(F("DMP ready! Waiting for first interrupt..."));
-    dmpReady = true;
-    // get expected DMP packet size for later comparison
-    packetSize = mpu.dmpGetFIFOPacketSize();
-
+void setReports(void) {
+  Serial.println("Setting desired reports");
+  if (imu.enableRotationVector() == true) {
+    Serial.println(F("Rotation vector enabled"));
+    Serial.println(F("Output in form roll, pitch, yaw"));
   } else {
-    // ERROR!
-    // 1 = initial memory load failed
-    // 2 = DMP configuration updates failed
-    // (if it's going to break, usually the code will be 1)
-    Serial.print(F("DMP Initialization failed (code "));
-    Serial.print(devStatus);
-    Serial.println(F(")"));
+    Serial.println("Could not enable rotation vector");
   }
 }
 
+float lowPassFilter(float value, float prevValue, float alpha) {
+  return alpha * value + (1 - alpha) * prevValue;
+}
 
 void remoteControl() {
   // **on décode réellement ici**  
@@ -49,10 +18,11 @@ void remoteControl() {
 
     cmd = IrReceiver.decodedIRData.command;
 
-    if ( cmd == 0x18 ) moveCmd = 15;
-    else if ( cmd == 0x08 ) turnCmd = 50;
-    else if ( cmd == 0x5A ) turnCmd = -50;
-    else if ( cmd == 0x52 ) moveCmd = -15;
+    if ( cmd == 0x18 ) move1Start = millis();
+    else if ( cmd == 0x08 ) turn1Start = millis();
+    else if ( cmd == 0x5A ) turn2Start = millis();
+    else if ( cmd == 0x52 ) move2Start = millis();
+  
 
     else if ( ( (IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT) && (millis() - lastRemote > 100) ) || !(IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT) ) {
 
@@ -75,24 +45,28 @@ void remoteControl() {
     lastRemote = millis();
     IrReceiver.resume();
   }
+
+  if ( millis() - move1Start < 100 ) moveCmd = 50;
+  else if ( millis() - move2Start < 100 ) moveCmd = -50;
+  else if ( millis() - turn1Start < 100 ) turnCmd = -150;
+  else if ( millis() - turn2Start < 100 ) turnCmd = 150;
 }
 
 
 void setMotors(double cmd, int turn) {
-  double left = cmd * balRate - turn;
-  double right = cmd * balRate + turn;
+  double left = cmd - turn;
+  double right = cmd + turn;
 
   motorL->setSpeedInHz(abs(left));
   motorR->setSpeedInHz(abs(right));
 
 
-  if (left < 0) motorL->runForward();
-  else motorL->runBackward();
+  if (left < 0) motorL->runBackward();
+  else motorL->runForward();
 
-  if (right <= 0) motorR->runBackward();
-  else motorR->runForward();
+  if (right <= 0) motorR->runForward();
+  else motorR->runBackward();
 
-  
 }
 
 
@@ -102,11 +76,12 @@ float measureSpeed() {
   static unsigned long lastTime = 0;
   static float filteredSpeed = 0;
 
-  long posL = motorL->getCurrentPosition();
+  long posL = -motorL->getCurrentPosition();
   long posR = motorR->getCurrentPosition();
   long deltaStepsL = posL - lastPosL;
   long deltaStepsR = posR - lastPosR;
   unsigned long now = millis();
+  //Serial.print(deltaStepsL); Serial.print(" => "); Serial.println(deltaStepsR);
 
   unsigned long deltaT = now - lastTime; // en ms
 
@@ -116,62 +91,49 @@ float measureSpeed() {
 
   if (deltaT == 0) return 0; // éviter la division par 0
 
-  float revsPerSecL = ((deltaStepsL * 10000.0) / deltaT) / (STEPS_REV * MICRO_STEPS);
-  float revsPerSecR = ((deltaStepsR * 10000.0) / deltaT) / (STEPS_REV * MICRO_STEPS);
+  float revsPerSecL = ((deltaStepsL * 1000.0) / deltaT) / (STEPS_REV * MICRO_STEPS);
+  float revsPerSecR = ((deltaStepsR * 1000.0) / deltaT) / (STEPS_REV * MICRO_STEPS);
   float wheelSpeedL = (PI * WHEEL_DIAMETER) * revsPerSecL;
   float wheelSpeedR = (PI * WHEEL_DIAMETER) * revsPerSecR;
-  float speed = (wheelSpeedL - wheelSpeedR) / 2.0;
+  float speed = (wheelSpeedL + wheelSpeedR) / 2.0;
 
-  const float alpha = 0.1;  // entre 0 et 1 → plus petit = plus lisse
-  filteredSpeed = alpha * speed + (1 - alpha) * filteredSpeed;
+  // filtrage passe-bas
+  filteredSpeed = lowPassFilter(speed, filteredSpeed, 0.1);
 
-  return filteredSpeed; // [m/s]
+  return filteredSpeed ; // [cm/s]
 }
 
-
-float getPitchIMU() {
-  // reset interrupt flag and get INT_STATUS byte
-  mpuInterrupt = false;
-  mpuIntStatus = mpu.getIntStatus();
-
-  // get current FIFO count
-  fifoCount = mpu.getFIFOCount();
-
-  // check for overflow (this should never happen unless our code is too inefficient)
-  if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
-    // reset so we can continue cleanly
-    mpu.resetFIFO();
-    Serial.println(F("FIFO overflow!"));
-  // otherwise, check for DMP data ready interrupt (this should happen frequently)
-  } else if (mpuIntStatus & 0x02) {
-    // wait for correct available data length, should be a VERY short wait
-    while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
-    // read a packet from FIFO
-    mpu.getFIFOBytes(fifoBuffer, packetSize);
-    // track FIFO count here in case there is > 1 packet available
-    // (this lets us immediately read more without waiting for an interrupt)
-    fifoCount -= packetSize;
-    mpu.dmpGetQuaternion(&q, fifoBuffer); //get value for q
-    mpu.dmpGetGravity(&gravity, &q); //get value for gravity
-    mpu.dmpGetYawPitchRoll(ypr, &q, &gravity); //get value for ypr
-    pitch = ypr[1] * 180/M_PI - 180;
-    if ( pitch < -180) pitch += 360;
-  }
-  return pitch; 
-}
 
 void lineTracking() {
-
-
   leftValue = digitalRead(LEFT_SENSOR_PIN);
   rightValue = digitalRead(RIGHT_SENSOR_PIN);
 
-  //if ( leftValue == LOW && rightValue == LOW ) moveCmd = 5;
-  if ( !(leftValue == HIGH && rightValue == HIGH) ) {
-    if ( leftValue == HIGH ) turnCmd = -50;
-    else if ( rightValue == HIGH ) turnCmd = 50;
-  } else moveCmd = 3;
+  if ( leftValue == LOW && rightValue == LOW ) moveCmd = 20;
+  else if ( leftValue == HIGH && rightValue == HIGH ) moveCmd = 0;
+  //else if ( abs(EQUILIBRE - inputA) < 2 ) {
+    else if ( leftValue == HIGH ) turnCmd = -75;
+    else if ( rightValue == HIGH ) turnCmd = 75;
+  //}
 
-  lastRemote = 0;
 
+}
+
+unsigned long lastTime = 0;
+unsigned long loopTime = 0;
+
+void temps() {
+  unsigned long now = micros();       // Temps actuel en µs
+  loopTime = now - lastTime;          // Durée d'une itération
+  lastTime = now;
+
+  // Affiche toutes les 500 ms pour ne pas saturer la liaison série
+  static unsigned long lastPrint = 0;
+  if (millis() - lastPrint > 500) {
+    Serial.print("Loop time (us): ");
+    Serial.print(loopTime);
+    Serial.print("  =>  Freq: ");
+    Serial.print(1000000.0 / loopTime);
+    Serial.println(" Hz");
+    lastPrint = millis();
+  }
 }
