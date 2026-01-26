@@ -48,8 +48,8 @@ void remoteControl() {
 
   if ( millis() - move1Start < 100 ) moveCmd = 50;
   else if ( millis() - move2Start < 100 ) moveCmd = -50;
-  else if ( millis() - turn1Start < 100 ) turnCmd = 200;
-  else if ( millis() - turn2Start < 100 ) turnCmd = -200;
+  else if ( millis() - turn1Start < 100 ) turnCmd = -150;
+  else if ( millis() - turn2Start < 100 ) turnCmd = 150;
 }
 
 
@@ -76,8 +76,8 @@ float measureSpeed() {
   static unsigned long lastTime = 0;
   static float filteredSpeed = 0;
 
-  long posL = motorL->getCurrentPosition();
-  long posR = -motorR->getCurrentPosition();
+  long posL = -motorL->getCurrentPosition();
+  long posR = motorR->getCurrentPosition();
   long deltaStepsL = posL - lastPosL;
   long deltaStepsR = posR - lastPosR;
   unsigned long now = millis();

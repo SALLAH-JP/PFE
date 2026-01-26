@@ -71,14 +71,14 @@ void loop() {
   moveCmd = 0;
   turnCmd = 0;
   
-  remoteControl();
+  //remoteControl();
   //pidA.SetTunings(KpA, KiA, KdA);
   //pidV.SetTunings(KpV, KiV, KdV);
   //lineTracking();
 
   // filtrage passe-bas des commandes
-  currentMoveCmd = moveCmd; //lowPassFilter(moveCmd, currentMoveCmd, 0.005 );
-  currentTurnCmd = turnCmd; //lowPassFilter(turnCmd, currentTurnCmd, 0.005 );
+  currentMoveCmd = lowPassFilter(moveCmd, currentMoveCmd, 0.05 );
+  currentTurnCmd = lowPassFilter(turnCmd, currentTurnCmd, 0.09 );
 
 
   if ( imu.getSensorEvent() == true && imu.getSensorEventID() == SENSOR_REPORTID_ROTATION_VECTOR ) {
@@ -90,7 +90,7 @@ void loop() {
     setpointA = EQUILIBRE + outputV;
     pidA.Compute();
     
-    Serial.print(inputA); Serial.print(" => "); Serial.println(outputA);
+    //Serial.print(inputA); Serial.print(" => "); Serial.println(outputA);
     //Serial.print(inputV); Serial.print(" => "); Serial.println(outputV);
     
   }
@@ -99,6 +99,6 @@ void loop() {
   //Serial.print(inputV); Serial.print(" => "); Serial.print(KpV); Serial.print(" => "); Serial.print(KiV); Serial.print(" => "); Serial.println(KdV);
   //Serial.print(currentMoveCmd); Serial.print(" => "); Serial.println(currentTurnCmd);
   setMotors(outputA + lineFwd, currentTurnCmd);
-  //temps();
+  temps();
 
 }

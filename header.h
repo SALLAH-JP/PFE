@@ -32,20 +32,21 @@ FastAccelStepper *motorR = NULL;
 // === BNO085 ===
 BNO08x imu;
 
-#define BNO08X_INT  -1
-#define BNO08X_RST  -1 //A5
+#define BNO08X_INT  2
+#define BNO08X_RST  51
 #define BNO08X_ADDR 0x4B
+
 
 // === PID ===
 
 
 #define EQUILIBRE 0
 double inputA, outputA, setpointA = EQUILIBRE;
-double KpA = 18, KiA = 0, KdA = 1.0;
+double KpA = 18, KiA = 0, KdA = 0.3;
 PID pidA(&inputA, &outputA, &setpointA, KpA, KiA, KdA, REVERSE);
 
 double inputV, outputV, currentMoveCmd = 0;
-double KpV = 0.3, KiV = 0, KdV = 0.0;
+double KpV = 0.35, KiV = 0, KdV = 0.01;
 PID pidV(&inputV, &outputV, &currentMoveCmd, KpV, KiV, KdV, DIRECT);
 
 
