@@ -4,22 +4,31 @@ import json
 import sys
 import queue
 import requests
+import threading
+
+llm_lock = threading.Lock()
+listening_enabled = True
+
 
 # Configuration
 MODEL_PATH = "vosk-model-small-fr-0.22"
-SAMPLE_RATE = 16000
+SAMPLE_RATE = 48000
 
 # File d'attente pour les données audio
 q = queue.Queue()
 
 def audio_callback(indata, frames, time, status):
     """Callback appelé pour chaque bloc audio"""
+
+    if not listening_enabled:
+	return
+
     if status:
         print(status, file=sys.stderr)
     q.put(bytes(indata))
 
 
-def ask_ollama(prompt, model="llama3.2:1b"):
+def ask_ollama(prompt, model="qwen2.5:0.5b"):
     url = "http://localhost:11434/api/generate"
 
     payload = {
@@ -28,8 +37,9 @@ def ask_ollama(prompt, model="llama3.2:1b"):
         "stream": False
     }
 
-    r = requests.post(url, json=payload)
-    r.raise_for_status()
+    with llm_lock:
+    	r = requests.post(url, json=payload, timeout=120)
+    	r.raise_for_status()
 
     return r.json()["response"]
 
@@ -53,17 +63,22 @@ try:
     ):
         while True:
             data = q.get()
-            
+
             if recognizer.AcceptWaveform(data):
                 # Phrase complète
                 result = json.loads(recognizer.Result())
                 text = result.get('text', '')
                 if text:
                     print(f"\n{text}")
+
+                    listening_enabled = False
                     response = ask_ollama(text)
+                    listening_enabled = True
+
                     print(f"Ollama: {response}\n")
 
-                    
+
+
 except KeyboardInterrupt:
     print("\n\nArrêt")
 except Exception as e:
