@@ -1,0 +1,10 @@
+{
+  "volume": 100,
+  "mic_name": "USB PnP",
+  "audio_output_device": "bcm",
+  "model_name": "qwen2.5:0.5b",
+  "voice": "gilles-low.onnx",
+  "enable_audio_processing": false,
+  "history_length": 6,
+  "system_prompt": "You are a helpful assistant."
+}
