@@ -30,6 +30,7 @@ import io
 import re
 import subprocess
 from vosk import Model, KaldiRecognizer
+import ollama
 import pyaudio
 import requests
 from pydub import AudioSegment
@@ -53,50 +54,6 @@ class Timer:
 
 # ------------------- FUNCTIONS -------------------
 
-def get_input_device_index(preferred_name="USB"):
-    pa = pyaudio.PyAudio()
-    index = None
-    for i in range(pa.get_device_count()):
-        info = pa.get_device_info_by_index(i)
-        if preferred_name.lower() in info['name'].lower() and info['maxInputChannels'] > 0:
-            print(f"[Debug] Selected input device {i}: {info['name']}")
-            print(f"[Debug] Device sample rate: {info['defaultSampleRate']} Hz")
-            index = i
-            break
-    pa.terminate()
-    if index is None:
-        print("[Warning] Preferred mic not found. Falling back to default.")
-    return index
-
-def get_output_device_index(preferred_name="bcm"):
-    pa = pyaudio.PyAudio()
-    for i in range(pa.get_device_count()):
-        info = pa.get_device_info_by_index(i)
-        if preferred_name.lower() in info['name'].lower() and info['maxOutputChannels'] > 0:
-            print(f"[Debug] Selected output device {i}: {info['name']}")
-            return i
-    print("[Warning] Preferred output device not found. Using default index 0.")
-    return 0
-
-def parse_card_number(device_str):
-    """
-    Extract ALSA card number from string like 'plughw:3,0'
-    """
-    try:
-        return int(device_str.split(":")[1].split(",")[0])
-    except Exception as e:
-        print(f"[Warning] Could not parse card number from {device_str}: {e}")
-        return 0  # fallback
-
-def list_input_devices():
-    pa = pyaudio.PyAudio()
-    print("[Debug] Available input devices:")
-    for i in range(pa.get_device_count()):
-        info = pa.get_device_info_by_index(i)
-        if info['maxInputChannels'] > 0:
-            print(f"  {i}: {info['name']} ({int(info['defaultSampleRate'])} Hz, {info['maxInputChannels']}ch)")
-    pa.terminate()
-
 def resample_audio(data, orig_rate=48000, target_rate=16000):
     # Convert byte string to numpy array
     audio_np = np.frombuffer(data, dtype=np.int16)
@@ -104,24 +61,6 @@ def resample_audio(data, orig_rate=48000, target_rate=16000):
     resampled_np = soxr.resample(audio_np, orig_rate, target_rate)
     # Convert back to bytes
     return resampled_np.astype(np.int16).tobytes()
-
-def set_output_volume(volume_level, card_id=1):
-    """
-    Set output volume using ALSA 'Speaker' control on specified card.
-    volume_level: 1–10 (user scale)
-    card_id: ALSA card number (from aplay -l)
-    """
-    percent = max(1, min(volume_level, 10)) * 10  # map to 10–100%
-    try:
-        subprocess.run(
-            ['amixer', '-c', str(card_id), 'sset', 'Speaker', f'{percent}%'],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        print(f"[Debug] Volume set to {percent}% on card {card_id}")
-    except Exception as e:
-        print(f"[Warning] Volume control failed on card {card_id}: {e}")
 
 # ------------------- PATHS -------------------
 
@@ -136,7 +75,7 @@ DEFAULT_CONFIG = {
     "volume": 9,
     "mic_name": "Plantronics",
     "audio_output_device": "Plantronics",
-    "model_name": "qwen2.5:0.5b",
+    "model_name": "robot-assistant",
     "voice": "en_US-kathleen-low.onnx",
     "enable_audio_processing": False,
     "history_length": 4,
@@ -162,26 +101,20 @@ config = load_config()
 # Apply loaded config values
 VOLUME = config["volume"]
 MIC_NAME = config["mic_name"]
-AUDIO_OUTPUT_DEVICE = config["audio_output_device"]
-AUDIO_OUTPUT_DEVICE_INDEX = get_output_device_index(config["audio_output_device"])
-OUTPUT_CARD = parse_card_number(AUDIO_OUTPUT_DEVICE)
+AUDIO_OUTPUT_DEVICE = config["audio_output_device"] 
 MODEL_NAME = config["model_name"]
 VOICE_MODEL = os.path.join("voices", config["voice"])
 ENABLE_AUDIO_PROCESSING = config["enable_audio_processing"]
 HISTORY_LENGTH = config["history_length"]
 
-# Set system volume
-set_output_volume(VOLUME, OUTPUT_CARD)
 
 # Setup messages with system prompt
 messages = [{"role": "system", "content": config["system_prompt"]}]
 
-list_input_devices()
-RATE = 44100
+RATE = 48000
 CHUNK = 1024
 CHANNELS = 1
 mic_enabled = True
-DEVICE_INDEX = get_input_device_index()
 
 # SOUND EFFECTS
 NOISE_LEVEL = '0.04'
@@ -226,7 +159,6 @@ def start_stream():
         format=pyaudio.paInt16,
         channels=CHANNELS,
         input=True,
-        input_device_index=DEVICE_INDEX,
         frames_per_buffer=CHUNK,
         stream_callback=audio_callback
     )
@@ -237,21 +169,21 @@ def start_stream():
 # ------------------- QUERY OLLAMA CHAT ENDPOINT -------------------
 
 def query_ollama():
-    payload = {
-        "model": MODEL_NAME,
-        "messages": [messages[0]] + messages[-HISTORY_LENGTH:],  # force system prompt at top
-        "stream": False}
+
 
     with Timer("Inference"):  # measure inference latency
-        resp = requests.post(CHAT_URL, json=payload)
-    #print(f'[Debug] Ollama status: {resp.status_code}')
-    data = resp.json()
-    # Extract assistant message
-    reply = ''
-    if 'message' in data and 'content' in data['message']:
-        reply = data['message']['content'].strip()
-    #print('[Debug] Reply:', reply)
-    return reply
+        resp = ollama.generate(
+            model=MODEL_NAME,
+            prompt=json.dumps(messages[-HISTORY_LENGTH:]),
+            keep_alive=-1
+        )
+
+    response = resp['response']
+    print(f'[Debug] Ollama status: {response}')
+
+    response = json.loads(response[response.find("{"):response.rfind("}")+1])
+
+    return response['reponse']
 
 # ------------------- TTS & DEGRADATION -------------------
 
@@ -285,80 +217,23 @@ def play_response(text):
         )
         tts_pcm, _ = piper_proc.communicate(input=clean.encode())
 
-    if ENABLE_AUDIO_PROCESSING:
-        # SoX timing consolidation
-        sox_start = time.time()
+    # No FX: just convert raw PCM to WAV
+    pcm_to_wav = subprocess.Popen(
+        ['sox', '-t', 'raw', '-r', '16000', '-c', str(CHANNELS), '-b', '16',
+         '-e', 'signed-integer', '-', '-t', 'wav', '-'],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL
+    )
+    tts_wav_16k, _ = pcm_to_wav.communicate(input=tts_pcm)
 
-        # 2. Convert raw PCM to WAV
-        pcm_to_wav = subprocess.Popen(
-            ['sox', '-t', 'raw', '-r', '16000', '-c', str(CHANNELS), '-b', '16',
-            '-e', 'signed-integer', '-', '-t', 'wav', '-'],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL
-        )
-        tts_wav_16k, _ = pcm_to_wav.communicate(input=tts_pcm)
-
-        # 3. Estimate duration
-        duration_sec = len(tts_pcm) / (RATE * 2)
-
-        # 4. Generate white noise WAV bytes
-        noise_bytes = subprocess.check_output([
-            'sox', '-n',
-            '-r', '16000',
-            '-c', str(CHANNELS),
-            '-b', '16',
-            '-e', 'signed-integer',
-            '-t', 'wav', '-',
-            'synth', str(duration_sec),
-            'whitenoise', 'vol', NOISE_LEVEL
-        ], stderr=subprocess.DEVNULL)
-
-        # 5. Write both to temp files & mix
-        with tempfile.NamedTemporaryFile(suffix='.wav') as tts_file, tempfile.NamedTemporaryFile(suffix='.wav') as noise_file:
-            tts_file.write(tts_wav_16k)
-            noise_file.write(noise_bytes)
-            tts_file.flush()
-            noise_file.flush()
-            mixer = subprocess.Popen(
-                ['sox', '-m', tts_file.name, noise_file.name, '-t', 'wav', '-'],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL
-            )
-            mixed_bytes, _ = mixer.communicate()
-
-        # 6. Apply filter
-        filter_proc = subprocess.Popen(
-            #['sox', '-t', 'wav', '-', '-t', 'wav', '-', 'highpass', BANDPASS_HIGHPASS, 'lowpass', BANDPASS_LOWPASS],
-            ['sox', '-t', 'wav', '-', '-r', '48000', '-t', 'wav', '-',
-             'highpass', BANDPASS_HIGHPASS, 'lowpass', BANDPASS_LOWPASS],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL
-        )
-        final_bytes, _ = filter_proc.communicate(input=mixed_bytes)
-
-        sox_elapsed = (time.time() - sox_start) * 1000
-        print(f"[Timing] SoX (total): {int(sox_elapsed)} ms")
-    
-    else:
-        # No FX: just convert raw PCM to WAV
-        pcm_to_wav = subprocess.Popen(
-            ['sox', '-t', 'raw', '-r', '16000', '-c', str(CHANNELS), '-b', '16',
-             '-e', 'signed-integer', '-', '-t', 'wav', '-'],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL
-        )
-        tts_wav_16k, _ = pcm_to_wav.communicate(input=tts_pcm)
-
-        resample_proc = subprocess.Popen(
-            ['sox', '-t', 'wav', '-', '-r', '48000', '-t', 'wav', '-'],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL
-        )
-        final_bytes, _ = resample_proc.communicate(input=tts_wav_16k)
+    resample_proc = subprocess.Popen(
+        ['sox', '-t', 'wav', '-', '-r', '48000', '-t', 'wav', '-'],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL
+    )
+    final_bytes, _ = resample_proc.communicate(input=tts_wav_16k)
 
     # 7. Playback
     with Timer("Playback"):
@@ -371,8 +246,7 @@ def play_response(text):
                 format=pa.get_format_from_width(wf.getsampwidth()),
                 channels=wf.getnchannels(),
                 rate=wf.getframerate(),
-                output=True,
-                output_device_index=AUDIO_OUTPUT_DEVICE_INDEX
+                output=True
             )
 
             data = wf.readframes(CHUNK)
@@ -433,7 +307,7 @@ def processing_loop():
                     messages.append({"role": "assistant", "content": clean_debug_text})
 
                     # TTS generation + playback
-                    play_response(resp_text)
+                    #play_response(resp_text)
                 else:
                     print('[Debug] Empty response, skipping TTS.')
 
