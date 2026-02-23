@@ -1,4 +1,4 @@
-FROM qwen3:0.6b-q4_K_M
+FROM granite4:350m
 
 PARAMETER temperature 0
 PARAMETER num_predict -1
