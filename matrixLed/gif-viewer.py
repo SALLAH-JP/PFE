@@ -6,28 +6,33 @@ from rgbmatrix import RGBMatrix, RGBMatrixOptions
 from PIL import Image
 
 
-if len(sys.argv) < 2:
-    sys.exit("Require a gif argument")
-else:
-    image_file = sys.argv[1]
+def gifViewer(image_file):
 
-gif = Image.open(image_file)
+	if len(sys.argv) < 2:
+    	sys.exit("Require a gif argument")
+	else:
+	    image_file = sys.argv[1]
 
-try:
-    num_frames = gif.n_frames
+	gif = Image.open(image_file)
+
+	try:
+	num_frames = gif.n_frames
 except Exception:
     sys.exit("provided image is not a gif")
-
 
 # Configuration for the matrix
 options = RGBMatrixOptions()
 options.rows = 32
-options.cols = 32
-options.chain_length = 1
-options.parallel = 1
+options.cols = 64
+#options.led_slowdown_gpio = 3
+options.led_rgb_sequence = 'RBG'
+options.brightness = 75
+options.disable_hardware_pulsing = True
 options.hardware_mapping = 'regular'  # If you have an Adafruit HAT: 'adafruit-hat'
 
 matrix = RGBMatrix(options = options)
+matrix.Clear()
+
 
 # Preprocess the gifs frames into canvases to improve playback performance
 frames = []
