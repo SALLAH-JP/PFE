@@ -1,4 +1,4 @@
-FROM granite3.1-moe:1b
+FROM granite4:350m
 
 
 SYSTEM """

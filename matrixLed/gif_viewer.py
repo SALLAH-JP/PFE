@@ -3,6 +3,8 @@
 import threading
 from rgbmatrix import RGBMatrix, RGBMatrixOptions
 from PIL import Image
+import time
+
 
 def gifViewer(gif_path, matrix=None):
     """
@@ -52,7 +54,16 @@ def gifViewer(gif_path, matrix=None):
             matrix.SwapOnVSync(canvas, framerate_fraction=10)
         
         # Garder la dernière frame affichée
+        #last_frame = frames[-1]
+        #canvas.SetImage(last_frame)
+        #matrix.SwapOnVSync(canvas)
+
+
         print(f"✅ {gif_path} affiché")
+
+        while True:
+            time.sleep(1)
+
     
     # Lancer dans un thread
     thread = threading.Thread(target=afficher, daemon=True)
