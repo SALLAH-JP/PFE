@@ -45,8 +45,8 @@ void remoteControl() {
     IrReceiver.resume();
   }
 
-  if ( millis() - move1Start < 100 ) moveCmd = 40;
-  else if ( millis() - move2Start < 100 ) moveCmd = -40;
+  if ( millis() - move1Start < 100 ) moveCmd = 20;
+  else if ( millis() - move2Start < 100 ) moveCmd = -20;
   else if ( millis() - turn1Start < 100 ) turnCmd = 200;
   else if ( millis() - turn2Start < 100 ) turnCmd = -200;
 }
