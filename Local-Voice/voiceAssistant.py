@@ -13,6 +13,12 @@ import pyaudio
 import pyttsx3
 from vosk import Model, KaldiRecognizer
 
+import sys
+sys.path.append("/home/pi/PFE/matrixLed")
+
+from gif_viewer import gifViewer
+
+
 # ─────────────────────────────────────────────
 #  CONFIGURATION
 # ─────────────────────────────────────────────
@@ -158,6 +164,9 @@ def main():
     print("║  Stop      : 'Merci'                          ║")
     print("║  Ctrl+C pour quitter                          ║")
     print("╚══════════════════════════════════════════════╝\n")
+
+
+    gifViewer("/home/pi/PFE/matrixLed/style2/blink.gif")
 
     # Vérification Ollama
     try:
