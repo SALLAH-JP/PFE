@@ -16,7 +16,7 @@ from vosk import Model, KaldiRecognizer
 # ─────────────────────────────────────────────
 #  CONFIGURATION
 # ─────────────────────────────────────────────
-OLLAMA_URL    = "http://localhost:11434/api/chat"
+OLLAMA_URL    = "http://11.0.0.103:11434/api/chat"
 OLLAMA_MODEL  = "qwen2.5:1.5b"
 VOSK_MODEL    = "vosk-model"
 SAMPLE_RATE   = 44100
@@ -161,7 +161,7 @@ def main():
 
     # Vérification Ollama
     try:
-        resp = requests.get("http://localhost:11434/api/tags", timeout=5)
+        resp = requests.get("http://11.0.0.103:11434/api/tags", timeout=5)
         models = [m["name"] for m in resp.json().get("models", [])]
         print(f"✅  Ollama — modèles : {models}")
         if not any(OLLAMA_MODEL in m for m in models):
@@ -171,7 +171,7 @@ def main():
         return
 
     pa = pyaudio.PyAudio()
-    state = STATE_IDLE
+    state = STATE_ACTIVE
 
     recognizer = KaldiRecognizer(vosk_model, SAMPLE_RATE)
     stream = open_stream(pa)
