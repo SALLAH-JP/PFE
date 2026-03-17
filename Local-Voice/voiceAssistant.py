@@ -1,89 +1,121 @@
 #!/usr/bin/env python3
 """
-Pipeline vocal : STT (SpeechRecognition + Google) → LLM (Ollama REST) → TTS (pyttsx3)
-Dépendances : pip install SpeechRecognition pyttsx3 pyaudio requests
+Pipeline vocal : Wake word "Salut Nash" → discussion → "Merci"
+STT (Vosk small FR) → LLM (Ollama qwen2.5:1.5b) → TTS (pyttsx3)
 """
 
-import sys
-import time
 import json
+import subprocess
+import time
+import threading
 import requests
-import speech_recognition as sr
+import pyaudio
 import pyttsx3
-import os
-
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "matrixLed"))
-
-from gif_viewer import gifViewer
+from vosk import Model, KaldiRecognizer
 
 # ─────────────────────────────────────────────
 #  CONFIGURATION
 # ─────────────────────────────────────────────
-OLLAMA_URL   = "http://11.0.0.44:11434/api/chat"
-OLLAMA_MODEL = "qwen2.5:1.5b"
+OLLAMA_URL    = "http://localhost:11434/api/chat"
+OLLAMA_MODEL  = "qwen2.5:1.5b"
+VOSK_MODEL    = "vosk-model"
+SAMPLE_RATE   = 44100
+CHUNK         = 4096
+
+WAKE_WORDS    = ["salut nash", "salut nache", "salut nasch"]
+STOP_WORDS    = ["merci", "merci nash"]
 
 SYSTEM_PROMPT = (
-    "Tu es un assistant vocal concis et sympathique. "
-    "Réponds toujours en moins de 3 phrases."
+    "Tu es Nash, un robot assistant vocal. "
+    "Réponds de façon très courte, maximum 2 phrases. "
+    "Tu peux recevoir des ordres de déplacement : avance, recule, "
+    "tourne à gauche, tourne à droite, stop."
 )
+
+# ─────────────────────────────────────────────
+#  ÉTATS
+# ─────────────────────────────────────────────
+STATE_IDLE   = "idle"
+STATE_ACTIVE = "active"
 
 # ─────────────────────────────────────────────
 #  INITIALISATION
 # ─────────────────────────────────────────────
-recognizer = sr.Recognizer()
+print("⏳  Chargement de Vosk…")
+vosk_model = Model(VOSK_MODEL)
+print("✅  Vosk prêt.")
 
+print("⏳  Initialisation pyttsx3…")
 tts_engine = pyttsx3.init()
 tts_engine.setProperty("rate", 170)
 tts_engine.setProperty("volume", 1.0)
 
+# Voix française si disponible
 for voice in tts_engine.getProperty("voices"):
     if "fr" in voice.id.lower() or "french" in voice.name.lower():
         tts_engine.setProperty("voice", voice.id)
+        print(f"✅  Voix française : {voice.name}")
         break
 
 conversation_history: list[dict] = []
 
 
 # ─────────────────────────────────────────────
-#  1. STT
+#  AUDIO
 # ─────────────────────────────────────────────
-def listen_and_transcribe() -> str | None:
-    print("\n🎤  Parlez…")
-    try:
-        with sr.Microphone() as source:
-            recognizer.adjust_for_ambient_noise(source, duration=0.2)
-            audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
-        
-        wav_data = audio.get_wav_data()
-        audio_wav = sr.AudioData(wav_data, audio.sample_rate, audio.sample_width)
+def open_stream(pa: pyaudio.PyAudio):
+    device_index = None
+    for i in range(pa.get_device_count()):
+        info = pa.get_device_info_by_index(i)
+        if info["maxInputChannels"] > 0 and "usb" in info["name"].lower():
+            device_index = i
+            print(f"✅  Micro : {info['name']}")
+            break
 
-        text = recognizer.recognize_google(audio_wav, language="fr-FR")
-        print(f"📝  Transcription : {text}")
-        return text.strip()
-
-    except sr.WaitTimeoutError:
-        print("   (aucune parole détectée)")
-        return None
-    except sr.UnknownValueError:
-        print("   (audio incompréhensible)")
-        return None
-    except sr.RequestError as e:
-        print(f"❌  Erreur STT : {e}")
-        return None
+    stream = pa.open(
+        format=pyaudio.paInt16,
+        channels=1,
+        rate=SAMPLE_RATE,
+        input=True,
+        input_device_index=device_index,
+        frames_per_buffer=CHUNK
+    )
+    return stream
 
 
 # ─────────────────────────────────────────────
-#  2. LLM
+#  STT — Vosk
+# ─────────────────────────────────────────────
+def listen_once(stream, recognizer: KaldiRecognizer) -> str | None:
+    while True:
+        data = stream.read(CHUNK, exception_on_overflow=False)
+        if recognizer.AcceptWaveform(data):
+            result = json.loads(recognizer.Result())
+            text = result.get("text", "").strip()
+            return text if text else None
+
+        partial = json.loads(recognizer.PartialResult()).get("partial", "")
+        if partial:
+            print(f"\r   {partial}…", end="", flush=True)
+
+
+# ─────────────────────────────────────────────
+#  LLM — Ollama
 # ─────────────────────────────────────────────
 def ask_ollama(user_text: str) -> str:
     conversation_history.append({"role": "user", "content": user_text})
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history
 
-    print("🤖  Ollama : ", end="", flush=True)
+    print("🤖  Nash : ", end="", flush=True)
     full_response = ""
 
     try:
-        with requests.post(OLLAMA_URL, json={"model": OLLAMA_MODEL, "messages": messages, "stream": True}, stream=True, timeout=60) as resp:
+        with requests.post(
+            OLLAMA_URL,
+            json={"model": OLLAMA_MODEL, "messages": messages, "stream": True},
+            stream=True,
+            timeout=60
+        ) as resp:
             resp.raise_for_status()
             for line in resp.iter_lines():
                 if not line:
@@ -100,12 +132,15 @@ def ask_ollama(user_text: str) -> str:
         return full_response
 
     except requests.exceptions.ConnectionError:
-        print(f"\n❌  Ollama inaccessible — lancez : ollama serve")
+        print("\n❌  Ollama inaccessible")
+        return ""
+    except Exception as e:
+        print(f"\n❌  Erreur : {e}")
         return ""
 
 
 # ─────────────────────────────────────────────
-#  3. TTS
+#  TTS — pyttsx3
 # ─────────────────────────────────────────────
 def speak(text: str) -> None:
     print(f"🔊  {text[:60]}{'…' if len(text) > 60 else ''}")
@@ -116,20 +151,76 @@ def speak(text: str) -> None:
 # ─────────────────────────────────────────────
 #  BOUCLE PRINCIPALE
 # ─────────────────────────────────────────────
-while True:
+def main():
+    print("\n╔══════════════════════════════════════════════╗")
+    print("║  Nash  —  Vosk → qwen2.5:1.5b → pyttsx3     ║")
+    print("║  Wake word : 'Salut Nash'                     ║")
+    print("║  Stop      : 'Merci'                          ║")
+    print("║  Ctrl+C pour quitter                          ║")
+    print("╚══════════════════════════════════════════════╝\n")
+
+    # Vérification Ollama
     try:
-        user_text = listen_and_transcribe()
-        if not user_text:
-            continue
+        resp = requests.get("http://localhost:11434/api/tags", timeout=5)
+        models = [m["name"] for m in resp.json().get("models", [])]
+        print(f"✅  Ollama — modèles : {models}")
+        if not any(OLLAMA_MODEL in m for m in models):
+            print(f"⚠️  Modèle manquant — lancez : ollama pull {OLLAMA_MODEL}")
+    except Exception:
+        print("❌  Ollama inaccessible — lancez : ollama serve")
+        return
 
-        if any(w in user_text.lower() for w in ["quitter", "exit", "au revoir", "stop"]):
-            speak("Au revoir !")
+    pa = pyaudio.PyAudio()
+    state = STATE_IDLE
+
+    recognizer = KaldiRecognizer(vosk_model, SAMPLE_RATE)
+    stream = open_stream(pa)
+
+    print("\n😴  En attente de 'Salut Nash'…")
+
+    while True:
+        try:
+            text = listen_once(stream, recognizer)
+            if not text:
+                continue
+
+            # ── MODE IDLE ──
+            if state == STATE_IDLE:
+                if any(w in text.lower() for w in WAKE_WORDS):
+                    print(f"\n🟢  Wake word détecté : '{text}'")
+                    state = STATE_ACTIVE
+                    conversation_history.clear()
+                    speak("Oui, je vous écoute.")
+                    print("💬  Mode discussion — dites 'Merci' pour terminer\n")
+                else:
+                    print(f"\r😴  (ignoré : '{text}')", end="", flush=True)
+
+            # ── MODE ACTIF ──
+            elif state == STATE_ACTIVE:
+                print(f"\n👤  Vous : {text}")
+
+                if any(w in text.lower() for w in STOP_WORDS):
+                    speak("De rien, à bientôt !")
+                    state = STATE_IDLE
+                    conversation_history.clear()
+                    print("\n😴  En attente de 'Salut Nash'…")
+                    continue
+
+                response = ask_ollama(text)
+                if response:
+                    speak(response)
+
+        except KeyboardInterrupt:
+            print("\n\n👋  Arrêt du robot.")
             break
+        except Exception as e:
+            print(f"\n⚠️  Erreur : {e}")
+            time.sleep(1)
 
-        response = ask_ollama(user_text)
-        if response:
-            speak(response)
+    stream.stop_stream()
+    stream.close()
+    pa.terminate()
 
-    except KeyboardInterrupt:
-        print("\n👋  Au revoir !")
-        break
+
+if __name__ == "__main__":
+    main()
