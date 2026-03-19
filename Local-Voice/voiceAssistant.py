@@ -1,32 +1,21 @@
 #!/usr/bin/env python3
 """
 Pipeline vocal : Wake word "Salut Nash" → discussion → "Merci"
-STT (Vosk small FR) → LLM (Ollama qwen2.5:1.5b) → TTS (pyttsx3)
+STT (SpeechRecognition + Google) → LLM (Ollama qwen2.5:1.5b) → TTS (pyttsx3)
 """
 
 import json
-import subprocess
 import time
-import threading
 import requests
-import pyaudio
+import speech_recognition as sr
 import pyttsx3
-from vosk import Model, KaldiRecognizer
-
-import sys
-sys.path.append("/home/pi/PFE/matrixLed")
-
-from gif_viewer import gifViewer
 
 
 # ─────────────────────────────────────────────
 #  CONFIGURATION
 # ─────────────────────────────────────────────
-OLLAMA_URL    = "http://11.0.0.103:11434/api/chat"
+OLLAMA_URL    = "http://localhost:11434/api/chat"
 OLLAMA_MODEL  = "qwen2.5:1.5b"
-VOSK_MODEL    = "vosk-model"
-SAMPLE_RATE   = 44100
-CHUNK         = 4096
 
 WAKE_WORDS    = ["salut nash", "salut nache", "salut nasch"]
 STOP_WORDS    = ["merci", "merci nash"]
@@ -47,62 +36,38 @@ STATE_ACTIVE = "active"
 # ─────────────────────────────────────────────
 #  INITIALISATION
 # ─────────────────────────────────────────────
-print("⏳  Chargement de Vosk…")
-vosk_model = Model(VOSK_MODEL)
-print("✅  Vosk prêt.")
-
-print("⏳  Initialisation pyttsx3…")
-tts_engine = pyttsx3.init()
-tts_engine.setProperty("rate", 170)
-tts_engine.setProperty("volume", 1.0)
-
-# Voix française si disponible
-for voice in tts_engine.getProperty("voices"):
-    if "fr" in voice.id.lower() or "french" in voice.name.lower():
-        tts_engine.setProperty("voice", voice.id)
-        print(f"✅  Voix française : {voice.name}")
-        break
+recognizer = sr.Recognizer()
+recognizer.dynamic_energy_threshold = True
+recognizer.pause_threshold = 0.5
 
 conversation_history: list[dict] = []
 
 
 # ─────────────────────────────────────────────
-#  AUDIO
+#  STT — Google
 # ─────────────────────────────────────────────
-def open_stream(pa: pyaudio.PyAudio):
-    device_index = None
-    for i in range(pa.get_device_count()):
-        info = pa.get_device_info_by_index(i)
-        if info["maxInputChannels"] > 0 and "usb" in info["name"].lower():
-            device_index = i
-            print(f"✅  Micro : {info['name']}")
-            break
 
-    stream = pa.open(
-        format=pyaudio.paInt16,
-        channels=1,
-        rate=SAMPLE_RATE,
-        input=True,
-        input_device_index=device_index,
-        frames_per_buffer=CHUNK
-    )
-    return stream
+with sr.Microphone() as source:
+    print("🎙️  Calibration...")
+    recognizer.adjust_for_ambient_noise(source, duration=1)
+    print("✅  Calibration terminée")
 
 
-# ─────────────────────────────────────────────
-#  STT — Vosk
-# ─────────────────────────────────────────────
-def listen_once(stream, recognizer: KaldiRecognizer) -> str | None:
-    while True:
-        data = stream.read(CHUNK, exception_on_overflow=False)
-        if recognizer.AcceptWaveform(data):
-            result = json.loads(recognizer.Result())
-            text = result.get("text", "").strip()
-            return text if text else None
+def listen_once() -> str | None:
+    try:
+        with sr.Microphone() as source:
+            audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
 
-        partial = json.loads(recognizer.PartialResult()).get("partial", "")
-        if partial:
-            print(f"\r   {partial}…", end="", flush=True)
+        text = recognizer.recognize_google(audio, language="fr-FR")
+        return text.strip().lower()
+
+    except sr.WaitTimeoutError:
+        return None
+    except sr.UnknownValueError:
+        return None
+    except sr.RequestError as e:
+        print(f"❌  Erreur Google STT : {e}")
+        return None
 
 
 # ─────────────────────────────────────────────
@@ -138,7 +103,7 @@ def ask_ollama(user_text: str) -> str:
         return full_response
 
     except requests.exceptions.ConnectionError:
-        print("\n❌  Ollama inaccessible")
+        print("\n❌  Ollama inaccessible — lancez : ollama serve")
         return ""
     except Exception as e:
         print(f"\n❌  Erreur : {e}")
@@ -150,27 +115,32 @@ def ask_ollama(user_text: str) -> str:
 # ─────────────────────────────────────────────
 def speak(text: str) -> None:
     print(f"🔊  {text[:60]}{'…' if len(text) > 60 else ''}")
-    tts_engine.say(text)
-    tts_engine.runAndWait()
+    engine = pyttsx3.init()
+    engine.setProperty("rate", 170)
+    engine.setProperty("volume", 1.0)
+    for voice in engine.getProperty("voices"):
+        if "fr" in voice.id.lower() or "french" in voice.name.lower():
+            engine.setProperty("voice", voice.id)
+            break
+    engine.say(text)
+    engine.runAndWait()
+    engine.stop()
 
 
 # ─────────────────────────────────────────────
 #  BOUCLE PRINCIPALE
 # ─────────────────────────────────────────────
 def main():
-    print("\n╔══════════════════════════════════════════════╗")
-    print("║  Nash  —  Vosk → qwen2.5:1.5b → pyttsx3     ║")
-    print("║  Wake word : 'Salut Nash'                     ║")
-    print("║  Stop      : 'Merci'                          ║")
-    print("║  Ctrl+C pour quitter                          ║")
-    print("╚══════════════════════════════════════════════╝\n")
-
-
-    gifViewer("/home/pi/PFE/matrixLed/style2/blink.gif")
+    print("\n╔══════════════════════════════════════════════════╗")
+    print("║  Nash  —  Google STT → qwen2.5:1.5b → pyttsx3   ║")
+    print("║  Wake word : 'Salut Nash'                         ║")
+    print("║  Stop      : 'Merci'                              ║")
+    print("║  Ctrl+C pour quitter                              ║")
+    print("╚══════════════════════════════════════════════════╝\n")
 
     # Vérification Ollama
     try:
-        resp = requests.get("http://11.0.0.103:11434/api/tags", timeout=5)
+        resp = requests.get("http://localhost:11434/api/tags", timeout=5)
         models = [m["name"] for m in resp.json().get("models", [])]
         print(f"✅  Ollama — modèles : {models}")
         if not any(OLLAMA_MODEL in m for m in models):
@@ -179,23 +149,18 @@ def main():
         print("❌  Ollama inaccessible — lancez : ollama serve")
         return
 
-    pa = pyaudio.PyAudio()
-    state = STATE_ACTIVE
-
-    recognizer = KaldiRecognizer(vosk_model, SAMPLE_RATE)
-    stream = open_stream(pa)
-
+    state = STATE_IDLE
     print("\n😴  En attente de 'Salut Nash'…")
 
     while True:
         try:
-            text = listen_once(stream, recognizer)
+            text = listen_once()
             if not text:
                 continue
 
             # ── MODE IDLE ──
             if state == STATE_IDLE:
-                if any(w in text.lower() for w in WAKE_WORDS):
+                if any(w in text for w in WAKE_WORDS):
                     print(f"\n🟢  Wake word détecté : '{text}'")
                     state = STATE_ACTIVE
                     conversation_history.clear()
@@ -208,7 +173,7 @@ def main():
             elif state == STATE_ACTIVE:
                 print(f"\n👤  Vous : {text}")
 
-                if any(w in text.lower() for w in STOP_WORDS):
+                if any(w in text for w in STOP_WORDS):
                     speak("De rien, à bientôt !")
                     state = STATE_IDLE
                     conversation_history.clear()
@@ -225,10 +190,6 @@ def main():
         except Exception as e:
             print(f"\n⚠️  Erreur : {e}")
             time.sleep(1)
-
-    stream.stop_stream()
-    stream.close()
-    pa.terminate()
 
 
 if __name__ == "__main__":

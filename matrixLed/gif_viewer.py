@@ -4,6 +4,7 @@ import threading
 from rgbmatrix import RGBMatrix, RGBMatrixOptions
 from PIL import Image
 import time
+import sys
 
 
 def gifViewer(gif_path, matrix=None):
@@ -68,3 +69,9 @@ def gifViewer(gif_path, matrix=None):
     # Lancer dans un thread
     thread = threading.Thread(target=afficher, daemon=True)
     thread.start()
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        sys.exit("Require a gif argument")
+    gifViewer(sys.argv[1])
