@@ -31,10 +31,10 @@ STOP_WORDS = ["merci", "merci nash"]
 
 # Chemins GIFs — adapte selon tes fichiers
 GIF_DIR    = os.path.join(os.path.dirname(__file__), "matrixLed")
-GIF_IDLE   = os.path.join(GIF_DIR, "style1", "idle.gif")
-GIF_LISTEN = os.path.join(GIF_DIR, "style1", "listen.gif")
-GIF_THINK  = os.path.join(GIF_DIR, "style1", "think.gif")
-GIF_SPEAK  = os.path.join(GIF_DIR, "style1", "speak.gif")
+GIF_IDLE   = os.path.join(GIF_DIR, "style1", "blink.gif")
+GIF_LISTEN = os.path.join(GIF_DIR, "style1", "neutral.gif")
+GIF_THINK  = os.path.join(GIF_DIR, "style1", "blink.gif")
+GIF_SPEAK  = os.path.join(GIF_DIR, "style1", "blink.gif")
 
 # ─────────────────────────────────────────────
 #  ÉTATS
@@ -78,11 +78,6 @@ def main():
     print("║  Ctrl+C pour quitter                              ║")
     print("╚══════════════════════════════════════════════════╝\n")
 
-    # Calibration micro
-    print("🎙️  Calibration micro...")
-    with sr.Microphone() as source:
-        recognizer.adjust_for_ambient_noise(source, duration=1)
-    print("✅  Calibration terminée\n")
 
     state = STATE_IDLE
     show_gif(GIF_IDLE)

@@ -8,8 +8,10 @@ import json
 import time
 import requests
 import speech_recognition as sr
-import pyttsx3
-
+from gtts import gTTS
+import subprocess
+import tempfile
+import os
 
 # ─────────────────────────────────────────────
 #  CONFIGURATION
@@ -47,7 +49,7 @@ conversation_history: list[dict] = []
 #  STT — Google
 # ─────────────────────────────────────────────
 
-with sr.Microphone() as source:
+with sr.Microphone(device_index=1) as source:
     print("🎙️  Calibration...")
     recognizer.adjust_for_ambient_noise(source, duration=1)
     print("✅  Calibration terminée")
@@ -55,7 +57,7 @@ with sr.Microphone() as source:
 
 def listen_once() -> str | None:
     try:
-        with sr.Microphone() as source:
+        with sr.Microphone(device_index=1) as source:
             audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
 
         text = recognizer.recognize_google(audio, language="fr-FR")
@@ -113,7 +115,7 @@ def ask_ollama(user_text: str) -> str:
 # ─────────────────────────────────────────────
 #  TTS — pyttsx3
 # ─────────────────────────────────────────────
-def speak(text: str) -> None:
+def speak2(text: str) -> None:
     print(f"🔊  {text[:60]}{'…' if len(text) > 60 else ''}")
     engine = pyttsx3.init()
     engine.setProperty("rate", 170)
@@ -126,6 +128,14 @@ def speak(text: str) -> None:
     engine.runAndWait()
     engine.stop()
 
+
+def speak(text: str) -> None:
+    print(f"🔊  {text[:60]}{'…' if len(text) > 60 else ''}")
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+        tmp = f.name
+    gTTS(text=text, lang="fr").save(tmp)
+    subprocess.run(["mpg123", "-q", tmp])
+    os.unlink(tmp)
 
 # ─────────────────────────────────────────────
 #  BOUCLE PRINCIPALE
