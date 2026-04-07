@@ -17,7 +17,7 @@ import os
 #  CONFIGURATION
 # ─────────────────────────────────────────────
 OLLAMA_URL    = "http://localhost:11434/api/chat"
-OLLAMA_MODEL  = "qwen2.5:1.5b"
+OLLAMA_MODEL  = "mistral-large-3:675b-cloud"
 
 WAKE_WORDS    = ["salut nash", "salut nache", "salut nasch"]
 STOP_WORDS    = ["merci", "merci nash"]
@@ -142,7 +142,7 @@ def speak(text: str) -> None:
 # ─────────────────────────────────────────────
 def main():
     print("\n╔══════════════════════════════════════════════════╗")
-    print("║  Nash  —  Google STT → qwen2.5:1.5b → pyttsx3   ║")
+    print("║  Nash  —  Google STT → mistral-large- → pyttsx3   ║")
     print("║  Wake word : 'Salut Nash'                         ║")
     print("║  Stop      : 'Merci'                              ║")
     print("║  Ctrl+C pour quitter                              ║")

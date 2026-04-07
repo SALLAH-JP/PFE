@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MARC — Robot Companion</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header>
+    <div class="logo">MARC<span>Robot</span></div>
+    <div class="header-right">
+      <span class="status-dot"></span>
+      <span class="status-label">SYSTÈME ACTIF</span>
+    </div>
+  </header>
+
+  <main class="main-grid">
+
+    <!-- ===== PARCOURS SVG ===== -->
+    <section class="parcours-card">
+      <p class="card-label">Parcours Robotique</p>
+      <div class="parcours-wrap">
+        <svg id="parcours-svg" viewBox="0 0 580 380" xmlns="http://www.w3.org/2000/svg">
+
+          <!-- Piste ovale ombre -->
+          <ellipse cx="290" cy="192" rx="238" ry="148" fill="none" stroke="#dde1ec" stroke-width="30" />
+          <!-- Piste principale -->
+          <ellipse cx="290" cy="190" rx="238" ry="148" fill="none" stroke="#e8ebf2" stroke-width="26" />
+          <!-- Ligne centrale pointillée -->
+          <ellipse cx="290" cy="190" rx="238" ry="148" fill="none" stroke="#d0d6e8" stroke-width="1.5" stroke-dasharray="10,8" />
+
+          <!-- Intérieur du parcours -->
+          <ellipse cx="290" cy="190" rx="196" ry="108" fill="#f7f8fc" stroke="#e0e4ef" stroke-width="1" />
+          <text x="290" y="183" class="center-label">Labo</text>
+          <text x="290" y="200" class="center-label">Robotique</text>
+
+          <!-- Flèches direction -->
+          <polygon points="388,46 398,42 394,54" fill="#c0c8dc"/>
+          <polygon points="502,152 510,144 512,158" fill="#c0c8dc"/>
+          <polygon points="394,338 382,342 386,330" fill="#c0c8dc"/>
+          <polygon points="186,338 176,332 182,322" fill="#c0c8dc"/>
+          <polygon points="72,152 64,160 66,148" fill="#c0c8dc"/>
+          <polygon points="162,44 150,48 154,36" fill="#c0c8dc"/>
+
+          <!-- ═══ STATIONS ═══ -->
+
+          <!-- NAO — gauche -->
+          <g class="station" id="st-nao" onclick="selectStation('nao')">
+            <circle cx="52" cy="190" r="28" class="station-circle" id="sc-nao"/>
+            <circle cx="52" cy="190" r="22" class="station-inner" id="si-nao"/>
+            <text x="52" y="186" class="station-emoji">🤖</text>
+            <text x="52" y="199" class="station-name">Nao</text>
+          </g>
+
+          <!-- IMPRIMANTE 3D — haut gauche -->
+          <g class="station" id="st-imp3d" onclick="selectStation('imp3d')">
+            <circle cx="183" cy="46" r="28" class="station-circle" id="sc-imp3d"/>
+            <circle cx="183" cy="46" r="22" class="station-inner" id="si-imp3d"/>
+            <text x="183" y="42" class="station-emoji">🖨️</text>
+            <text x="183" y="55" class="station-name">Imp. 3D</text>
+          </g>
+
+          <!-- PEPPER — haut droite -->
+          <g class="station" id="st-pepper" onclick="selectStation('pepper')">
+            <circle cx="397" cy="46" r="28" class="station-circle" id="sc-pepper"/>
+            <circle cx="397" cy="46" r="22" class="station-inner" id="si-pepper"/>
+            <text x="397" y="42" class="station-emoji">🤖</text>
+            <text x="397" y="55" class="station-name">Pepper</text>
+          </g>
+
+          <!-- ROBOT 3 — droite -->
+          <g class="station" id="st-robot3" onclick="selectStation('robot3')">
+            <circle cx="528" cy="190" r="28" class="station-circle" id="sc-robot3"/>
+            <circle cx="528" cy="190" r="22" class="station-inner" id="si-robot3"/>
+            <text x="528" y="186" class="station-emoji">⚙️</text>
+            <text x="528" y="199" class="station-name">Robot 3</text>
+          </g>
+
+          <!-- ROBOT 4 — bas droite -->
+          <g class="station" id="st-robot4" onclick="selectStation('robot4')">
+            <circle cx="397" cy="334" r="28" class="station-circle" id="sc-robot4"/>
+            <circle cx="397" cy="334" r="22" class="station-inner" id="si-robot4"/>
+            <text x="397" y="330" class="station-emoji">⚙️</text>
+            <text x="397" y="343" class="station-name">Robot 4</text>
+          </g>
+
+          <!-- ROBOT 5 — bas centre -->
+          <g class="station" id="st-robot5" onclick="selectStation('robot5')">
+            <circle cx="290" cy="338" r="28" class="station-circle" id="sc-robot5"/>
+            <circle cx="290" cy="338" r="22" class="station-inner" id="si-robot5"/>
+            <text x="290" y="334" class="station-emoji">⚙️</text>
+            <text x="290" y="347" class="station-name">Robot 5</text>
+          </g>
+
+          <!-- ROBOT 6 — bas gauche -->
+          <g class="station" id="st-robot6" onclick="selectStation('robot6')">
+            <circle cx="183" cy="334" r="28" class="station-circle" id="sc-robot6"/>
+            <circle cx="183" cy="334" r="22" class="station-inner" id="si-robot6"/>
+            <text x="183" y="330" class="station-emoji">⚙️</text>
+            <text x="183" y="343" class="station-name">Robot 6</text>
+          </g>
+
+          <!-- Nash robot mobile -->
+          <g id="nash-robot">
+            <circle id="nash-glow" cx="52" cy="190" r="20" fill="rgba(59,125,248,0.18)" />
+            <circle id="nash-dot"  cx="52" cy="190" r="13" fill="#3b7df8" stroke="white" stroke-width="2.5" />
+            <text   id="nash-text" x="52"  y="194"  class="nash-text">N</text>
+          </g>
+
+        </svg>
+      </div>
+
+      <div class="parcours-legend">
+        <div class="legend-item"><div class="legend-dot current"></div><span>Position actuelle</span></div>
+        <div class="legend-item"><div class="legend-dot target"></div><span>Destination</span></div>
+        <div class="legend-item"><div class="legend-dot idle"></div><span>Station disponible</span></div>
+      </div>
+    </section>
+
+    <!-- ===== DESTINATIONS ===== -->
+    <aside class="controls-panel">
+      <p class="card-label" style="padding-left:4px;margin-bottom:8px">Destinations</p>
+
+      <div class="station-card" id="card-nao"    onclick="selectStation('nao')">
+        <div class="station-info"><div class="station-icon-sm">🤖</div><div><div class="station-card-name">Nao</div><div class="station-card-sub">Robot humanoïde</div></div></div>
+        <div class="station-badge" id="badge-nao">—</div>
+      </div>
+      <div class="station-card" id="card-imp3d"  onclick="selectStation('imp3d')">
+        <div class="station-info"><div class="station-icon-sm">🖨️</div><div><div class="station-card-name">Imprimante 3D</div><div class="station-card-sub">Station fabrication</div></div></div>
+        <div class="station-badge" id="badge-imp3d">—</div>
+      </div>
+      <div class="station-card" id="card-pepper" onclick="selectStation('pepper')">
+        <div class="station-info"><div class="station-icon-sm">🤖</div><div><div class="station-card-name">Pepper</div><div class="station-card-sub">Robot interactif</div></div></div>
+        <div class="station-badge" id="badge-pepper">—</div>
+      </div>
+      <div class="station-card" id="card-robot3" onclick="selectStation('robot3')">
+        <div class="station-info"><div class="station-icon-sm">⚙️</div><div><div class="station-card-name">Robot 3</div><div class="station-card-sub">Station est</div></div></div>
+        <div class="station-badge" id="badge-robot3">—</div>
+      </div>
+      <div class="station-card" id="card-robot4" onclick="selectStation('robot4')">
+        <div class="station-info"><div class="station-icon-sm">⚙️</div><div><div class="station-card-name">Robot 4</div><div class="station-card-sub">Station sud-est</div></div></div>
+        <div class="station-badge" id="badge-robot4">—</div>
+      </div>
+      <div class="station-card" id="card-robot5" onclick="selectStation('robot5')">
+        <div class="station-info"><div class="station-icon-sm">⚙️</div><div><div class="station-card-name">Robot 5</div><div class="station-card-sub">Station sud</div></div></div>
+        <div class="station-badge" id="badge-robot5">—</div>
+      </div>
+      <div class="station-card" id="card-robot6" onclick="selectStation('robot6')">
+        <div class="station-info"><div class="station-icon-sm">⚙️</div><div><div class="station-card-name">Robot 6</div><div class="station-card-sub">Station sud-ouest</div></div></div>
+        <div class="station-badge" id="badge-robot6">—</div>
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- ===== MIC ===== -->
+  <section class="mic-section">
+    <div class="mic-card">
+      <button class="mic-btn" id="micBtn" title="Maintenir pour parler">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <path id="mic-icon-body"  d="M12 1C10.34 1 9 2.34 9 4v8c0 1.66 1.34 3 3 3s3-1.34 3-3V4c0-1.66-1.34-3-3-3z"/>
+          <path id="mic-icon-stand" d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08C16.39 17.43 19 14.53 19 11h-2z"/>
+        </svg>
+      </button>
+      <div class="mic-info">
+        <div class="mic-title">Assistant Vocal</div>
+        <div class="mic-status" id="micStatus">Maintenir pour parler</div>
+      </div>
+      <div class="mic-right">
+        <div class="mic-conversation">
+          <div class="mic-line user-line">
+            <span class="mic-line-label">Vous</span>
+            <span id="userText" class="transcript-box">—</span>
+          </div>
+          <div class="mic-line ai-line">
+            <span class="mic-line-label">Nash</span>
+            <span id="aiReply" class="transcript-box">En attente…</span>
+          </div>
+        </div>
+        <div class="voice-hints">
+          Dites : <em>"va chez Nao"</em>, <em>"va à l'imprimante"</em>, <em>"retourne à la base"</em>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== LOG ===== -->
+  <section class="log-section">
+    <div class="log-card">
+      <div class="log-header">
+        <span class="card-label" style="margin:0">Journal</span>
+        <button class="log-clear" id="logClear">Effacer</button>
+      </div>
+      <div class="log-entries" id="logEntries">
+        <div class="log-entry">
+          <span class="log-time">--:--:--</span>
+          <span class="log-msg info">Système démarré</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

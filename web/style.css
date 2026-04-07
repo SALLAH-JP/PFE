@@ -1,0 +1,320 @@
+/* ===================================================
+   MARC Robot — style.css — Même style IOTHouse
+=================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg:          #f0f2f7;
+  --bg2:         #e8ebf2;
+  --panel:       #ffffff;
+  --panel2:      #f7f8fc;
+  --border:      #e0e4ef;
+  --border2:     #c8cfe0;
+
+  --accent:      #3b7df8;
+  --accent-dim:  rgba(59,125,248,0.07);
+  --accent2:     #14b8a6;
+  --accent2-dim: rgba(20,184,166,0.07);
+
+  --text:        #1a1f2e;
+  --text2:       #6b748a;
+  --muted:       #aab2c8;
+  --danger:      #e8445a;
+
+  --radius:      8px;
+  --radius-lg:   14px;
+  --shadow:      0 1px 3px rgba(0,0,0,0.07), 0 4px 12px rgba(0,0,0,0.04);
+  --shadow-sm:   0 1px 2px rgba(0,0,0,0.06);
+}
+
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  font-weight: 400;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 16px 72px;
+  overflow-x: hidden;
+}
+
+/* ── HEADER ── */
+header {
+  width: 100%; max-width: 980px;
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 28px;
+}
+.logo {
+  font-family: 'Inter', sans-serif;
+  font-weight: 600; font-size: 1.2rem;
+  letter-spacing: -0.4px; color: var(--text);
+}
+.logo span { color: var(--accent); }
+.header-right { display: flex; align-items: center; gap: 8px; }
+.status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent2); flex-shrink: 0;
+  animation: blink 2.5s ease-in-out infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.status-label {
+  font-size: 0.6rem; color: var(--text2);
+  letter-spacing: 1.5px; text-transform: uppercase;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ── MAIN GRID ── */
+.main-grid {
+  width: 100%; max-width: 980px;
+  display: grid; grid-template-columns: 1fr 272px; gap: 14px;
+}
+@media(max-width:700px){ .main-grid{ grid-template-columns:1fr; } }
+
+/* ── PARCOURS CARD ── */
+.parcours-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 24px 20px;
+}
+.parcours-wrap {
+  width: 100%; display: flex; justify-content: center;
+}
+#parcours-svg {
+  width: 100%; max-width: 580px; height: auto;
+  overflow: visible;
+}
+
+/* SVG labels */
+.center-label {
+  fill: #aab2c8;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  text-anchor: middle;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+
+/* Stations SVG */
+.station { cursor: pointer; }
+
+.station-circle {
+  fill: var(--bg2);
+  stroke: var(--border2);
+  stroke-width: 1.5;
+  transition: fill 0.25s, stroke 0.25s;
+}
+
+.station-inner {
+  fill: var(--panel);
+  stroke: var(--border);
+  stroke-width: 1;
+  transition: fill 0.25s;
+}
+
+.station:hover .station-circle { stroke: var(--accent); fill: var(--accent-dim); }
+.station:hover .station-inner  { fill: rgba(59,125,248,0.04); }
+
+.station-emoji {
+  font-size: 11px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.station-name {
+  fill: var(--text2);
+  font-size: 7px;
+  font-family: 'JetBrains Mono', monospace;
+  text-anchor: middle;
+  letter-spacing: 0.3px;
+}
+
+/* Station active (position courante) */
+.station.is-current .station-circle { fill: rgba(59,125,248,0.12); stroke: var(--accent); stroke-width: 2; }
+.station.is-current .station-name   { fill: var(--accent); font-weight: 500; }
+
+/* Station cible sélectionnée */
+.station.is-target .station-circle { fill: rgba(20,184,166,0.12); stroke: var(--accent2); stroke-width: 2; }
+.station.is-target .station-name   { fill: var(--accent2); }
+
+/* Nash robot dot */
+.nash-text {
+  fill: white;
+  font-size: 9px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+#nash-dot { transition: cx 0.8s cubic-bezier(0.4,0,0.2,1), cy 0.8s cubic-bezier(0.4,0,0.2,1); }
+#nash-glow { transition: cx 0.8s cubic-bezier(0.4,0,0.2,1), cy 0.8s cubic-bezier(0.4,0,0.2,1); animation: pulse-glow 2s ease-in-out infinite; }
+#nash-text { transition: x 0.8s cubic-bezier(0.4,0,0.2,1), y 0.8s cubic-bezier(0.4,0,0.2,1); }
+
+@keyframes pulse-glow {
+  0%,100%{ r: 18; opacity: 0.6; }
+  50%    { r: 24; opacity: 0.2; }
+}
+
+/* Légende */
+.parcours-legend {
+  display: flex; gap: 20px; margin-top: 14px;
+  padding-top: 12px; border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.legend-item { display: flex; align-items: center; gap: 7px; font-size: 0.65rem; color: var(--text2); }
+.legend-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+}
+.legend-dot.current { background: var(--accent); }
+.legend-dot.target  { background: var(--accent2); }
+.legend-dot.idle    { background: var(--border2); border: 1px solid var(--border2); }
+
+/* ── CONTROLS PANEL ── */
+.controls-panel { display: flex; flex-direction: column; gap: 7px; }
+
+.card-label {
+  font-size: 0.6rem; font-weight: 600;
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 16px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Station cards */
+.station-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 13px;
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; user-select: none;
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+  box-shadow: var(--shadow-sm);
+}
+.station-card:hover  { border-color: var(--border2); background: var(--panel2); box-shadow: var(--shadow); }
+.station-card.active { border-color: rgba(59,125,248,0.35); background: var(--accent-dim); }
+.station-card.is-current { border-color: var(--accent); background: var(--accent-dim); }
+.station-card.is-target  { border-color: var(--accent2); background: var(--accent2-dim); }
+
+.station-info { display: flex; align-items: center; gap: 10px; }
+.station-icon-sm {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: var(--bg2); border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.95rem; flex-shrink: 0; transition: background 0.18s;
+}
+.station-card.is-current .station-icon-sm { background: rgba(59,125,248,0.1); border-color: rgba(59,125,248,0.25); }
+.station-card.is-target  .station-icon-sm { background: rgba(20,184,166,0.1); border-color: rgba(20,184,166,0.25); }
+
+.station-card-name { font-size: 0.82rem; font-weight: 500; color: var(--text); }
+.station-card-sub  { font-size: 0.61rem; color: var(--text2); margin-top: 1px; font-family: 'JetBrains Mono', monospace; }
+
+.station-badge {
+  font-size: 0.6rem; font-family: 'JetBrains Mono', monospace;
+  color: var(--muted); letter-spacing: 1px;
+  padding: 3px 7px; border-radius: 4px;
+  background: var(--bg2); border: 1px solid var(--border);
+  transition: all 0.2s;
+}
+.station-card.is-current .station-badge { background: rgba(59,125,248,0.1); border-color: rgba(59,125,248,0.3); color: var(--accent); }
+.station-card.is-target  .station-badge { background: rgba(20,184,166,0.1); border-color: rgba(20,184,166,0.3); color: var(--accent2); }
+
+/* ── MIC ── */
+.mic-section { width: 100%; max-width: 980px; margin-top: 14px; }
+.mic-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow);
+  padding: 20px 24px; display: flex; align-items: center; gap: 20px;
+}
+.mic-btn {
+  width: 54px; height: 54px; border-radius: 50%;
+  background: var(--bg2); border: 1px solid var(--border2);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; flex-shrink: 0;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+.mic-btn:hover { border-color: rgba(59,125,248,0.4); background: var(--accent-dim); }
+.mic-btn.recording {
+  border-color: var(--danger); background: rgba(232,68,90,0.07);
+  animation: mic-ring 1.1s ease-in-out infinite;
+}
+#mic-icon-body, #mic-icon-stand { fill: var(--text2); transition: fill 0.2s; }
+.mic-btn.recording #mic-icon-body,
+.mic-btn.recording #mic-icon-stand { fill: var(--danger); }
+@keyframes mic-ring {
+  0%,100%{ box-shadow: 0 0 0 0   rgba(232,68,90,0.3); }
+  50%    { box-shadow: 0 0 0 12px rgba(232,68,90,0); }
+}
+.mic-info  { min-width: 130px; }
+.mic-title { font-size: 0.9rem; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.mic-status {
+  font-size: 0.6rem; color: var(--text2);
+  letter-spacing: 1.5px; text-transform: uppercase;
+  font-family: 'JetBrains Mono', monospace;
+}
+.mic-status.listening  { color: var(--danger); font-weight: 500; }
+.mic-status.processing { color: var(--accent); }
+
+.mic-right { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.mic-conversation { display: flex; flex-direction: column; gap: 6px; }
+.mic-line { display: flex; align-items: baseline; gap: 8px; }
+.mic-line-label {
+  font-size: 0.58rem; font-weight: 600; letter-spacing: 1.5px;
+  text-transform: uppercase; font-family: 'JetBrains Mono', monospace;
+  flex-shrink: 0; width: 32px;
+}
+.user-line .mic-line-label { color: var(--accent); }
+.ai-line   .mic-line-label { color: var(--accent2); }
+.transcript-box {
+  flex: 1; background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 7px 12px;
+  font-size: 0.76rem; color: var(--text2); line-height: 1.5;
+  transition: border-color 0.3s, color 0.3s; display: inline-block;
+}
+.user-line .transcript-box { border-color: rgba(59,125,248,0.15); }
+.ai-line   .transcript-box { border-color: rgba(20,184,166,0.15); }
+
+.voice-hints {
+  font-size: 0.6rem; color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+.voice-hints em { font-style: normal; color: var(--accent); }
+
+/* ── LOG ── */
+.log-section { width: 100%; max-width: 980px; margin-top: 14px; }
+.log-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow);
+  padding: 16px 20px;
+}
+.log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.log-clear {
+  background: none; border: none; font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6rem; color: var(--muted); cursor: pointer;
+  transition: color 0.2s; letter-spacing: 1px; text-transform: uppercase;
+}
+.log-clear:hover { color: var(--danger); }
+.log-entries {
+  display: flex; flex-direction: column; gap: 5px;
+  max-height: 110px; overflow-y: auto;
+}
+.log-entries::-webkit-scrollbar       { width: 3px; }
+.log-entries::-webkit-scrollbar-track { background: transparent; }
+.log-entries::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+.log-entry { display: flex; gap: 10px; font-size: 0.64rem; line-height: 1.5; font-family: 'JetBrains Mono', monospace; }
+.log-time  { color: var(--muted); flex-shrink: 0; }
+.log-msg      { color: var(--text2); }
+.log-msg.cmd  { color: var(--accent); }
+.log-msg.err  { color: var(--danger); }
+.log-msg.info { color: var(--accent2); }
+
+::-webkit-scrollbar       { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
