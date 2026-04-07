@@ -6,67 +6,55 @@ from PIL import Image
 import time
 import sys
 
+# Stop event global — arrête le thread en cours avant d'en lancer un nouveau
+_current_stop_event = None
+
 
 def gifViewer(gif_path, matrix=None):
-    """
-    Affiche un GIF une seule fois (non-bloquant)
-    
-    Args:
-        gif_path: Chemin vers le fichier GIF
-        matrix: Instance RGBMatrix (si None, en crée une nouvelle)
-    """
-    
-    # Créer la matrice si nécessaire
+    global _current_stop_event
+
+    # Arrête le GIF précédent
+    if _current_stop_event is not None:
+        _current_stop_event.set()
+        time.sleep(0.1)
+
     if matrix is None:
-        # Configuration for the matrix
         options = RGBMatrixOptions()
         options.rows = 32
         options.cols = 64
-        #options.led_slowdown_gpio = 3
         options.led_rgb_sequence = 'RBG'
         options.brightness = 75
         options.disable_hardware_pulsing = True
-        options.hardware_mapping = 'regular'  # If you have an Adafruit HAT: 'adafruit-hat'
+        options.hardware_mapping = 'regular'
+        matrix = RGBMatrix(options=options)
 
-        matrix = RGBMatrix(options = options)
-    
-    # Effacer l'affichage
     matrix.Clear()
-    
-    # Charger et prétraiter le GIF
+
     gif = Image.open(gif_path)
-    num_frames = gif.n_frames
-    
     frames = []
-    for frame_index in range(num_frames):
+    for frame_index in range(gif.n_frames):
         gif.seek(frame_index)
         frame = gif.copy()
         frame.thumbnail((matrix.width, matrix.height), Image.LANCZOS)
         frames.append(frame.convert("RGB"))
-    
     gif.close()
-    
-    # Fonction pour afficher une seule fois
+
+    stop_event = threading.Event()
+    _current_stop_event = stop_event
+
     def afficher():
         canvas = matrix.CreateFrameCanvas()
-        
+        # Joue le GIF une seule fois
         for frame in frames:
+            if stop_event.is_set():
+                return
             canvas.SetImage(frame)
             matrix.SwapOnVSync(canvas, framerate_fraction=10)
-        
-        # Garder la dernière frame affichée
-        #last_frame = frames[-1]
-        #canvas.SetImage(last_frame)
-        #matrix.SwapOnVSync(canvas)
-
-
         print(f"✅ {gif_path} affiché")
+        # Garde la dernière frame — attend le stop
+        while not stop_event.is_set():
+            time.sleep(0.1)
 
-        while True:
-            time.sleep(1)
-
-    
-    # Lancer dans un thread
     thread = threading.Thread(target=afficher, daemon=True)
     thread.start()
 
@@ -75,3 +63,8 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         sys.exit("Require a gif argument")
     gifViewer(sys.argv[1])
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
