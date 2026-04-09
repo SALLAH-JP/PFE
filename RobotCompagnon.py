@@ -4,6 +4,9 @@ RobotCompagnon.py
 Orchestrateur principal du robot Nash
 """
 
+import subprocess as _sp
+import threading
+import serial
 import time
 import sys
 import os
@@ -23,18 +26,19 @@ except ImportError:
     print("⚠️  rgbmatrix non disponible (mode PC)")
     MATRIX_AVAILABLE = False
 
+
 # ─────────────────────────────────────────────
 #  CONFIGURATION
 # ─────────────────────────────────────────────
-WAKE_WORDS = ["salut nash", "salut nache", "salut nasch"]
-STOP_WORDS = ["merci", "merci nash"]
+WAKE_WORDS = ["salut marc", "salut marque", "salut mac"]
+STOP_WORDS = ["merci", "merci marc"]
 
 # Chemins GIFs — adapte selon tes fichiers
 GIF_DIR    = os.path.join(os.path.dirname(__file__), "matrixLed")
-GIF_IDLE   = os.path.join(GIF_DIR, "style1", "blink.gif")
-GIF_LISTEN = os.path.join(GIF_DIR, "style1", "neutral.gif")
-GIF_THINK  = os.path.join(GIF_DIR, "style1", "blink.gif")
-GIF_SPEAK  = os.path.join(GIF_DIR, "style1", "blink.gif")
+GIF_IDLE   = os.path.join(GIF_DIR, "style2", "blink.gif")
+GIF_LISTEN = os.path.join(GIF_DIR, "style2", "neutral.gif")
+GIF_THINK  = os.path.join(GIF_DIR, "style2", "blink.gif")
+GIF_SPEAK  = os.path.join(GIF_DIR, "style2", "blink.gif")
 
 # ─────────────────────────────────────────────
 #  ÉTATS
@@ -57,14 +61,27 @@ if MATRIX_AVAILABLE:
     matrix = RGBMatrix(options=options)
     print("✅  Matrix LED initialisée")
 
-
 def show_gif(gif_path: str) -> None:
-    if not MATRIX_AVAILABLE or matrix is None:
+    if not MATRIX_AVAILABLE:
         return
     if not os.path.exists(gif_path):
         print(f"⚠️  GIF introuvable : {gif_path}")
         return
+
     gifViewer(gif_path, matrix)
+
+
+def serial_sender():
+    global current_move, current_turn
+
+    while True:
+        try:
+            cmd = f"{current_move} {current_turn}\n"
+            ser.write(cmd.encode())
+        except Exception as e:
+            print(f"❌ Serial error: {e}")
+
+        time.sleep(0.05)  # 20 Hz (parfait pour ton PID)
 
 
 # ─────────────────────────────────────────────
@@ -72,15 +89,16 @@ def show_gif(gif_path: str) -> None:
 # ─────────────────────────────────────────────
 def main():
     print("\n╔══════════════════════════════════════════════════╗")
-    print("║  Nash  —  Google STT → qwen2.5:1.5b → pyttsx3   ║")
-    print("║  Wake word : 'Salut Nash'                         ║")
-    print("║  Stop      : 'Merci'                              ║")
-    print("║  Ctrl+C pour quitter                              ║")
+    print("║  Google STT → mistral-large-3:675b-cloud → Gtts  ║")
+    print("║  Wake word : 'Salut Nash'                        ║")
+    print("║  Stop      : 'Merci'                             ║")
+    print("║  Ctrl+C pour quitter                             ║")
     print("╚══════════════════════════════════════════════════╝\n")
 
 
     state = STATE_IDLE
     show_gif(GIF_IDLE)
+    threading.Thread(target=serial_sender, daemon=True).start()
     print("😴  En attente de 'Salut Nash'…")
 
     while True:

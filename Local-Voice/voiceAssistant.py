@@ -19,7 +19,7 @@ import os
 OLLAMA_URL    = "http://localhost:11434/api/chat"
 OLLAMA_MODEL  = "mistral-large-3:675b-cloud"
 
-WAKE_WORDS    = ["salut nash", "salut nache", "salut nasch"]
+WAKE_WORDS    = ["salut marc", "salut marque", "salut mac"]
 STOP_WORDS    = ["merci", "merci nash"]
 
 SYSTEM_PROMPT = (

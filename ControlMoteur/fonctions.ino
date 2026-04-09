@@ -136,3 +136,21 @@ void temps() {
     lastPrint = millis();
   }
 }
+
+
+void readSerialCommand() {
+  if (Serial.available()) {
+    String input = Serial.readStringUntil('\n');
+
+    int m, t;
+    if (sscanf(input.c_str(), "%d %d", &m, &t) == 2) {
+      moveCmd = m;
+      turnCmd = t;
+
+      Serial.print("CMD reçu: ");
+      Serial.print(moveCmd);
+      Serial.print(" , ");
+      Serial.println(turnCmd);
+    }
+  }
+}

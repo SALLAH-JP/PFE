@@ -71,10 +71,12 @@ void loop() {
     setReports();
   }
 
-  moveCmd = 0;
-  turnCmd = 0;
+  //moveCmd = 0;
+  //turnCmd = 0;
+
+  readSerialCommand();
   
-  remoteControl();
+  //remoteControl();
   //pidA.SetTunings(KpA, KiA, KdA);
   //pidV.SetTunings(KpV, KiV, KdV);
   //lineTracking();
