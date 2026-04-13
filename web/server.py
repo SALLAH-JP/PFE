@@ -1,112 +1,232 @@
 #!/usr/bin/env python3
 """
 MARC Robot — server.py
-Serveur Flask : STT (Google Speech Recognition) + LLM (Ollama) + TTS (gTTS)
+Serveur Flask : reçoit les commandes depuis voiceAssistant.py (HTTP)
+et depuis l'interface web (boutons/clics).
+Utilise les fonctions de voiceAssistant.py pour éviter les doublons.
 """
 
 import os
+import sys
+import time
 import tempfile
+import threading
 import requests
-import speech_recognition as sr
-from pydub import AudioSegment
-from flask import Flask, request, jsonify, send_from_directory, send_file
-from gtts import gTTS
 
-recognizer = sr.Recognizer()
-print("✅ Google Speech Recognition prêt")
+from flask import Flask, request, jsonify, send_from_directory
 
-app = Flask(__name__, static_folder=".")
+# ── Imports voiceAssistant (fonctions partagées) ──
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(os.path.join(ROOT, "Local-Voice"))
+sys.path.append(os.path.join(ROOT, "matrixLed"))
+from voiceAssistant import speak, ask_ollama, recognizer
 
-TMP_DIR = tempfile.gettempdir()
+# ── Matrix LED (optionnel) ──
+try:
+    from gif_viewer import gifViewer
+    from rgbmatrix import RGBMatrix, RGBMatrixOptions
+    MATRIX_AVAILABLE = True
+except ImportError:
+    print("⚠️  rgbmatrix non disponible (mode PC)")
+    MATRIX_AVAILABLE = False
+
+# ── Serial (optionnel) ──
+try:
+    import serial
+    ser = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
+    SERIAL_AVAILABLE = True
+    print("✅  Port série ouvert")
+except Exception:
+    SERIAL_AVAILABLE = False
+    print("⚠️  Port série non disponible (mode PC)")
+
 
 # ─────────────────────────────────────────────
 #  CONFIGURATION
 # ─────────────────────────────────────────────
+GIF_DIR    = os.path.join(ROOT, "matrixLed")
+GIF_IDLE   = os.path.join(GIF_DIR, "style2", "blink.gif")
+GIF_LISTEN = os.path.join(GIF_DIR, "style2", "neutral.gif")
+GIF_THINK  = os.path.join(GIF_DIR, "style2", "blink.gif")
+GIF_SPEAK  = os.path.join(GIF_DIR, "style2", "blink.gif")
+
 OLLAMA_URL   = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "mistral-large-3:675b-cloud"
 
-SYSTEM_PROMPT = (
-    "Tu es Nash, un robot assistant vocal qui guide les visiteurs dans un laboratoire de robotique. "
+SYSTEM_PROMPT_WEB = (
+    "Tu es MARC, un robot assistant vocal qui guide les visiteurs dans un laboratoire de robotique. "
     "Réponds de façon très courte, maximum 2 phrases. "
-    "Les stations disponibles sont : Nao, Imprimante 3D, Pepper, Robot 3, Robot 4, Robot 5, Robot 6. "
-    "Si l'utilisateur mentionne une destination, extrais-la et réponds naturellement."
+    "Les stations disponibles sont : Nao, Imprimante 3D, brasRobotique. "
+    "Si l'utilisateur mentionne une destination, confirme brièvement."
 )
 
-VOICE_MAP = {
-    'nao':        'nao',
-    'imprimante': 'imp3d',
-    'impression': 'imp3d',
-    '3d':         'imp3d',
-    'pepper':     'pepper',
-    'robot 3':    'robot3',
-    'troisième':  'robot3',
-    'robot 4':    'robot4',
-    'quatrième':  'robot4',
-    'robot 5':    'robot5',
-    'cinq':       'robot5',
-    'robot 6':    'robot6',
-    'six':        'robot6',
-}
-
+# ─────────────────────────────────────────────
+#  ÉTAT GLOBAL
+# ─────────────────────────────────────────────
 robot_state = {
-    "current": "nao",
-    "target":  None,
+    "current":  "nao",
+    "target":   None,
+    "eyes":     1,
+    "mode":     "idle",   # "idle" | "active"
 }
 
+current_move = 0
+current_turn = 0
+
 # ─────────────────────────────────────────────
-#  HELPERS
+#  MATRIX LED
 # ─────────────────────────────────────────────
-def detect_destination(text: str):
-    lower = text.lower()
-    for keyword, station in VOICE_MAP.items():
-        if keyword in lower:
-            return station
-    return None
+matrix = None
+if MATRIX_AVAILABLE:
+    options = RGBMatrixOptions()
+    options.rows = 32
+    options.cols = 64
+    options.led_rgb_sequence = "RBG"
+    options.brightness = 75
+    options.disable_hardware_pulsing = True
+    options.hardware_mapping = "regular"
+    matrix = RGBMatrix(options=options)
+    print("✅  Matrix LED initialisée")
 
+def show_gif(gif_path: str) -> None:
+    if not MATRIX_AVAILABLE:
+        return
+    if not os.path.exists(gif_path):
+        print(f"⚠️  GIF introuvable : {gif_path}")
+        return
+    gifViewer(gif_path, matrix)
 
-def ask_ollama(user_text: str) -> str:
-    try:
-        resp = requests.post(
-            OLLAMA_URL,
-            json={
-                "model": OLLAMA_MODEL,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user",   "content": user_text},
-                ],
-                "stream": False,
-            },
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return resp.json()["message"]["content"].strip()
-    except Exception as e:
-        print(f"❌ Ollama erreur : {e}")
-        return "Je n'ai pas pu traiter ta demande."
-
-
-def make_tts(text: str) -> str:
-    tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=TMP_DIR, prefix="nash_tts_")
-    gTTS(text=text, lang="fr").save(tmp.name)
-    return tmp.name
-
-
-def convert_to_wav(input_path: str):
-    """Convertit un fichier audio (webm/ogg/mp4) en WAV pour SpeechRecognition."""
-    output_path = input_path.rsplit(".", 1)[0] + ".wav"
-    try:
-        audio = AudioSegment.from_file(input_path)
-        audio = audio.set_frame_rate(16000).set_channels(1)
-        audio.export(output_path, format="wav")
-        return output_path
-    except Exception as e:
-        print(f"❌ Conversion audio erreur : {e}")
-        return None
+def clear_matrix() -> None:
+    if MATRIX_AVAILABLE and matrix:
+        matrix.Clear()
+        print("🖥️  Matrix effacée")
 
 
 # ─────────────────────────────────────────────
-#  ROUTES STATIQUES
+#  SERIAL
 # ─────────────────────────────────────────────
+def serial_sender():
+    while True:
+        if SERIAL_AVAILABLE:
+            try:
+                cmd = f"{current_move} {current_turn}\n"
+                ser.write(cmd.encode())
+            except Exception as e:
+                print(f"❌  Serial error: {e}")
+        time.sleep(0.05)  # 20 Hz
+
+
+def send_serial_timed(move: int, turn: int, duration: float | None):
+    """Envoie une commande série, avec arrêt automatique si durée fournie."""
+    global current_move, current_turn
+    current_move = move
+    current_turn = turn
+    if duration:
+        def stop_after():
+            time.sleep(duration)
+            global current_move, current_turn
+            current_move = 0
+            current_turn = 0
+        threading.Thread(target=stop_after, daemon=True).start()
+
+
+TMP_DIR = tempfile.gettempdir()
+
+def tts(text: str) -> None:
+    """Joue le TTS localement sur le serveur dans un thread séparé."""
+    threading.Thread(target=speak, args=(text,), daemon=True).start()
+
+
+# ─────────────────────────────────────────────
+#  EXÉCUTION DES ACTIONS
+# ─────────────────────────────────────────────
+DESTINATION_MAP = {
+    "Nao":          "nao",
+    "Imprimante3D": "imp3d",
+    "brasRobotique": "robot3",
+}
+
+def execute_action(payload: dict) -> dict:
+    """
+    Reçoit le payload JSON (issu du LLM ou du clic web)
+    et exécute l'action correspondante.
+    Retourne un dict de résultat.
+    """
+    action = payload.get("action")
+    result = {"ok": True, "action": action}
+
+    print(f"⚙️  Exécution : {json.dumps(payload, ensure_ascii=False)}")
+
+    if action == "moveTo":
+        dest_raw = payload.get("destination", "")
+        dest_id  = DESTINATION_MAP.get(dest_raw, dest_raw.lower())
+        robot_state["target"]  = dest_id
+        # Simulation du déplacement (remplace par la vraie logique robot)
+        threading.Thread(target=_simulate_move, args=(dest_id,), daemon=True).start()
+        result["destination"] = dest_id
+
+    elif action == "moveForward":
+        duration = payload.get("temps")
+        send_serial_timed(1, 0, duration)
+        result["duration"] = duration
+
+    elif action == "moveBackward":
+        duration = payload.get("temps")
+        send_serial_timed(-1, 0, duration)
+        result["duration"] = duration
+
+    elif action == "turnLeft":
+        duration = payload.get("temps")
+        send_serial_timed(0, -1, duration)
+        result["duration"] = duration
+
+    elif action == "turnRight":
+        duration = payload.get("temps")
+        send_serial_timed(0, 1, duration)
+        result["duration"] = duration
+
+    elif action == "turn":
+        # Tour complet : à adapter selon ton implémentation
+        send_serial_timed(0, 1, 2.0)  # 2s de rotation = ~360°
+
+    elif action == "changeEyes":
+        style = payload.get("style", 1)
+        robot_state["eyes"] = style
+        gif_path = os.path.join(GIF_DIR, f"style{style}", "blink.gif")
+        threading.Thread(target=show_gif, args=(gif_path,), daemon=True).start()
+        result["style"] = style
+
+    elif action == "shutdown":
+        robot_state["mode"] = "idle"
+        clear_matrix()
+        show_gif(GIF_IDLE)
+        result["mode"] = "idle"
+
+    else:
+        result["ok"]    = False
+        result["error"] = f"Action inconnue : {action}"
+        print(f"⚠️  Action inconnue : {action}")
+
+    return result
+
+
+def _simulate_move(dest_id: str):
+    """Simulation de déplacement (à remplacer par la vraie navigation)."""
+    time.sleep(1.5)
+    robot_state["current"] = dest_id
+    robot_state["target"]  = None
+    print(f"✅  Robot arrivé à {dest_id}")
+
+
+# ─────────────────────────────────────────────
+#  FLASK APP
+# ─────────────────────────────────────────────
+import json
+
+app = Flask(__name__, static_folder=".")
+
+
+# ── Statique ──
 @app.route("/")
 def index():
     return send_from_directory(".", "index.html")
@@ -116,44 +236,122 @@ def static_files(filename):
     return send_from_directory(".", filename)
 
 
-# ─────────────────────────────────────────────
-#  ÉTAT DU ROBOT
-# ─────────────────────────────────────────────
+# ── État du robot ──
 @app.route("/status")
 def status():
     return jsonify({"robot_state": robot_state})
 
 
 # ─────────────────────────────────────────────
-#  COMMANDE DE DÉPLACEMENT (clic carte/SVG)
+#  ROUTE : Commande depuis voiceAssistant.py
+# ─────────────────────────────────────────────
+@app.route("/vocal_command", methods=["POST"])
+def vocal_command():
+    """
+    Reçoit le payload JSON complet généré par le LLM depuis voiceAssistant.py.
+    Format attendu :
+      {"type": "commande", "action": "...", "response": "...", ...}
+    """
+    payload = request.get_json()
+    if not payload:
+        return jsonify({"error": "payload vide"}), 400
+
+    action      = payload.get("action")
+    type_       = payload.get("type")
+    response    = payload.get("response", "")
+
+    if type_ == "chat":
+        # Pas d'action à exécuter, juste ack
+        return jsonify({"ok": True, "type": "chat", "robot_state": robot_state})
+
+    if not action:
+        return jsonify({"error": "action manquante"}), 400
+
+    result = execute_action(payload)
+    result["robot_state"] = robot_state
+    result["response"]    = response
+    return jsonify(result)
+
+
+# ─────────────────────────────────────────────
+#  ROUTE : Commande depuis l'interface web (clic)
 # ─────────────────────────────────────────────
 @app.route("/command", methods=["POST"])
 def command():
+    """
+    Reçoit une destination depuis l'interface web (clic sur carte/SVG).
+    Génère une réponse LLM et exécute le moveTo.
+    """
     data        = request.get_json()
     destination = data.get("destination")
 
     if not destination:
         return jsonify({"error": "destination manquante"}), 400
 
-    robot_state["target"] = destination
-    ai_reply = ask_ollama(f"Je dois me déplacer vers {destination}. Confirme brièvement.")
+    # Mapper l'id web vers le nom LLM
+    web_to_llm = {v: k for k, v in DESTINATION_MAP.items()}
+    dest_name  = web_to_llm.get(destination, destination)
 
-    tts_file = make_tts(ai_reply)
-    tts_key  = os.path.basename(tts_file)
+    # Réponse LLM (utilise ask_ollama de voiceAssistant)
+    llm_result = ask_ollama(f"Je dois me déplacer vers {dest_name}. Confirme brièvement.")
+    ai_reply   = llm_result.get("response", f"Je me dirige vers {dest_name}.") if llm_result else f"Je me dirige vers {dest_name}."
 
-    robot_state["current"] = destination
-    robot_state["target"]  = None
+    # Exécuter le déplacement
+    execute_action({"action": "moveTo", "destination": dest_name})
+
+    # TTS local sur le serveur
+    tts(ai_reply)
 
     return jsonify({
         "robot_state": robot_state,
         "ai_reply":    ai_reply,
-        "tts_url":     f"/tts/{tts_key}",
     })
 
 
 # ─────────────────────────────────────────────
-#  TRANSCRIPTION AUDIO → Google STT + LLM
+#  ROUTE : Texte direct (fallback Web Speech)
 # ─────────────────────────────────────────────
+@app.route("/send_text", methods=["POST"])
+def send_text():
+    data      = request.get_json()
+    user_text = data.get("user_text", "")
+
+    llm_result = ask_ollama(user_text)
+    if not llm_result:
+        return jsonify({"error": "LLM indisponible"}), 503
+
+    ai_reply = llm_result.get("response", "")
+    action   = llm_result.get("action")
+
+    if llm_result.get("type") == "commande" and action:
+        execute_action(llm_result)
+
+    tts(ai_reply)
+
+    return jsonify({
+        "ai_reply":    ai_reply,
+        "destination": DESTINATION_MAP.get(llm_result.get("destination", ""), None),
+        "robot_state": robot_state,
+    })
+
+
+# ─────────────────────────────────────────────
+#  ROUTE : Transcription audio (bouton micro web)
+# ─────────────────────────────────────────────
+import speech_recognition as sr
+from pydub import AudioSegment
+
+def convert_to_wav(input_path: str):
+    output_path = input_path.rsplit(".", 1)[0] + ".wav"
+    try:
+        audio = AudioSegment.from_file(input_path)
+        audio = audio.set_frame_rate(16000).set_channels(1)
+        audio.export(output_path, format="wav")
+        return output_path
+    except Exception as e:
+        print(f"❌  Conversion audio erreur : {e}")
+        return None
+
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
     if "audio" not in request.files:
@@ -161,39 +359,29 @@ def transcribe():
 
     audio_file = request.files["audio"]
     mimetype   = audio_file.mimetype or ""
+    suffix     = ".webm" if "webm" in mimetype else ".ogg" if "ogg" in mimetype else ".mp4" if "mp4" in mimetype else ".webm"
 
-    if "webm" in mimetype:
-        suffix = ".webm"
-    elif "ogg" in mimetype:
-        suffix = ".ogg"
-    elif "mp4" in mimetype:
-        suffix = ".mp4"
-    else:
-        suffix = ".webm"
-
-    # Sauvegarder l'audio reçu
     tmp_input = tempfile.NamedTemporaryFile(suffix=suffix, delete=False, dir=TMP_DIR)
     audio_file.save(tmp_input.name)
     tmp_input.close()
 
-    # Convertir en WAV (nécessaire pour SpeechRecognition)
     wav_path = convert_to_wav(tmp_input.name)
     os.unlink(tmp_input.name)
 
     if not wav_path:
         return jsonify({"error": "Conversion audio échouée — installe ffmpeg"}), 500
 
-    # Transcription Google
+    # Transcription Google (utilise le recognizer de voiceAssistant)
     transcript = ""
     try:
         with sr.AudioFile(wav_path) as source:
             audio_data = recognizer.record(source)
         transcript = recognizer.recognize_google(audio_data, language="fr-FR")
-        print(f"✅ Transcription : {transcript}")
+        print(f"✅  Transcription web : {transcript}")
     except sr.UnknownValueError:
-        print("⚠️ Audio incompréhensible")
+        print("⚠️  Audio incompréhensible")
     except sr.RequestError as e:
-        print(f"❌ Google STT erreur : {e}")
+        print(f"❌  Google STT erreur : {e}")
         return jsonify({"error": "Google STT indisponible"}), 503
     finally:
         try: os.unlink(wav_path)
@@ -207,65 +395,38 @@ def transcribe():
             "robot_state": robot_state,
         })
 
-    destination = detect_destination(transcript)
-    ai_reply    = ask_ollama(transcript)
+    # Traiter via LLM
+    llm_result = ask_ollama(transcript)
+    if not llm_result:
+        return jsonify({"error": "LLM indisponible"}), 503
 
-    if destination:
-        robot_state["current"] = destination
-        robot_state["target"]  = None
+    ai_reply = llm_result.get("response", "")
+    action   = llm_result.get("action")
+    dest_id  = None
 
-    tts_file = make_tts(ai_reply)
-    tts_key  = os.path.basename(tts_file)
+    if llm_result.get("type") == "commande" and action:
+        execute_action(llm_result)
+        if action == "moveTo":
+            dest_id = DESTINATION_MAP.get(llm_result.get("destination", ""), None)
+
+    tts(ai_reply)
 
     return jsonify({
         "transcript":  transcript,
         "ai_reply":    ai_reply,
-        "destination": destination,
+        "destination": dest_id,
         "robot_state": robot_state,
-        "tts_url":     f"/tts/{tts_key}",
     })
-
-
-# ─────────────────────────────────────────────
-#  TEXTE DIRECT + LLM (fallback)
-# ─────────────────────────────────────────────
-@app.route("/send_text", methods=["POST"])
-def send_text():
-    data      = request.get_json()
-    user_text = data.get("user_text", "")
-
-    destination = detect_destination(user_text)
-    ai_reply    = ask_ollama(user_text)
-
-    if destination:
-        robot_state["current"] = destination
-        robot_state["target"]  = None
-
-    tts_file = make_tts(ai_reply)
-    tts_key  = os.path.basename(tts_file)
-
-    return jsonify({
-        "ai_reply":    ai_reply,
-        "destination": destination,
-        "robot_state": robot_state,
-        "tts_url":     f"/tts/{tts_key}",
-    })
-
-
-# ─────────────────────────────────────────────
-#  SERVIR LES FICHIERS TTS
-# ─────────────────────────────────────────────
-@app.route("/tts/<filename>")
-def tts_file(filename):
-    path = os.path.join(TMP_DIR, filename)
-    if not os.path.exists(path):
-        return jsonify({"error": "fichier introuvable"}), 404
-    return send_file(path, mimetype="audio/mpeg")
 
 
 # ─────────────────────────────────────────────
 #  MAIN
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
-    print("🚀 MARC Robot server démarré sur http://0.0.0.0:5000")
-    app.run(host="0.0.0.0", port=5000, debug=False, ssl_context=('cert.pem', 'key.pem'))
+    print("🚀  MARC Robot server démarré sur http://0.0.0.0:5000")
+    threading.Thread(target=serial_sender, daemon=True).start()
+    WEB_DIR = os.path.dirname(os.path.abspath(__file__))
+    app.run(host="0.0.0.0", port=5000, debug=False, ssl_context=(
+        os.path.join(WEB_DIR, 'cert.pem'),
+        os.path.join(WEB_DIR, 'key.pem')
+    ))

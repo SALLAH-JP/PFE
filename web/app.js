@@ -75,7 +75,6 @@ async function sendDestination(destination) {
     const data = await res.json();
     if (data.robot_state) applyRobotState(data.robot_state);
     if (data.ai_reply)    document.getElementById('aiReply').textContent = data.ai_reply;
-    if (data.tts_url)     playTTS(data.tts_url);
     addLog('Serveur ✓', 'info');
   } catch {
     addLog('[démo] simulation locale', 'info');
@@ -104,11 +103,6 @@ function applyRobotState(state) {
   }
   if (state.target !== undefined) targetStation = state.target;
   updateStationStyles();
-}
-
-// ── Jouer TTS ──
-function playTTS(url) {
-  try { new Audio(url).play(); } catch (e) { console.error('TTS erreur:', e); }
 }
 
 // ═══════════════════════════════════════════
@@ -204,9 +198,6 @@ async function sendAudioToServer(mimeType) {
     }
     if (data.robot_state) applyRobotState(data.robot_state);
 
-    // Jouer TTS
-    if (data.tts_url) playTTS(data.tts_url);
-
   } catch (err) {
     addLog('Erreur serveur — fallback Web Speech', 'err');
     // Fallback : Web Speech API si serveur indisponible
@@ -239,7 +230,6 @@ function fallbackWebSpeech() {
       if (data.ai_reply)    document.getElementById('aiReply').textContent = data.ai_reply;
       if (data.destination) addLog(`Destination → ${data.destination}`, 'cmd');
       if (data.robot_state) applyRobotState(data.robot_state);
-      if (data.tts_url)     playTTS(data.tts_url);
     } catch {
       document.getElementById('aiReply').textContent = "Commande non reconnue.";
     }
