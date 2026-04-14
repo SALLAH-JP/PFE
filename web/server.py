@@ -33,7 +33,7 @@ except ImportError:
 # ── Serial (optionnel) ──
 try:
     import serial
-    ser = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
+    ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1)
     SERIAL_AVAILABLE = True
     print("✅  Port série ouvert")
 except Exception:
@@ -193,7 +193,7 @@ def execute_action(payload: dict) -> dict:
         style = payload.get("style", 1)
         robot_state["eyes"] = style
         gif_path = os.path.join(GIF_DIR, f"style{style}", "blink.gif")
-        threading.Thread(target=show_gif, args=(gif_path,), daemon=True).start()
+        show_gif(gif_path)
         result["style"] = style
 
     elif action == "shutdown":
@@ -425,6 +425,7 @@ def transcribe():
 if __name__ == "__main__":
     print("🚀  MARC Robot server démarré sur http://0.0.0.0:5000")
     threading.Thread(target=serial_sender, daemon=True).start()
+    show_gif(GIF_IDLE)
     WEB_DIR = os.path.dirname(os.path.abspath(__file__))
     app.run(host="0.0.0.0", port=5000, debug=False, ssl_context=(
         os.path.join(WEB_DIR, 'cert.pem'),

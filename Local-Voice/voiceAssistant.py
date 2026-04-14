@@ -3,7 +3,7 @@
 MARC Robot — voiceAssistant.py
 Pipeline vocal : Wake word → Ollama (JSON strict) → HTTP → server.py
 """
-
+import urllib3
 import json
 import time
 import requests
@@ -13,12 +13,18 @@ import os
 import speech_recognition as sr
 from gtts import gTTS
 
+
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+
 # ─────────────────────────────────────────────
 #  CONFIGURATION
 # ─────────────────────────────────────────────
 OLLAMA_URL    = "http://localhost:11434/api/chat"
 OLLAMA_MODEL  = "mistral-large-3:675b-cloud"
-SERVER_URL    = "http://localhost:5000"
+SERVER_URL    = "https://localhost:5000"
 
 WAKE_WORDS    = ["salut marc", "salut marque", "salut mac"]
 STOP_WORDS    = ["merci", "merci marc"]
@@ -183,8 +189,10 @@ def send_command_to_server(payload: dict) -> bool:
         resp = requests.post(
             f"{SERVER_URL}/vocal_command",
             json=payload,
-            timeout=10
+            timeout=10,
+            verify=False  # certificat auto-signé
         )
+
         resp.raise_for_status()
         print(f"✅  Serveur : {resp.json()}")
         return True

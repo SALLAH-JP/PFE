@@ -1,6 +1,6 @@
 void setReports(void) {
   Serial.println("Setting desired reports");
-  if (imu.enableRotationVector() == true) {
+  if (imu.enableRotationVector(10000) == true) {
     Serial.println(F("Rotation vector enabled"));
     Serial.println(F("Output in form roll, pitch, yaw"));
     delay(100);
@@ -53,19 +53,19 @@ void remoteControl() {
 
 
 void setMotors(double cmd, int turn) {
-  double left = cmd - turn;
+  double left  = cmd - turn;
   double right = cmd + turn;
 
-  motorL->setSpeedInHz(abs(left));
-  motorR->setSpeedInHz(abs(right));
+  // Vitesse minimale pour éviter le 0
+  int minSpeed = 10;
+  int speedL = max((int)abs(left), minSpeed);
+  int speedR = max((int)abs(right), minSpeed);
 
+  motorL->setSpeedInHz(speedL);
+  motorR->setSpeedInHz(speedR);
 
-  if (left < 0) motorL->runBackward();
-  else motorL->runForward();
-
-  if (right <= 0) motorR->runForward();
-  else motorR->runBackward();
-
+  if (left  < 0) motorL->runBackward(); else motorL->runForward();
+  if (right <= 0) motorR->runForward();  else motorR->runBackward();
 }
 
 

@@ -122,11 +122,11 @@ async function startRecording() {
     audioChunks = [];
 
     // Choisir le meilleur format supporté
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus'
-      : MediaRecorder.isTypeSupported('audio/webm')
-        ? 'audio/webm'
-        : 'audio/ogg';
+    const mimeType = MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
+      ? 'audio/ogg;codecs=opus'
+      : MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm';
 
     mediaRecorder = new MediaRecorder(mediaStream, { mimeType });
 
@@ -136,7 +136,7 @@ async function startRecording() {
 
     mediaRecorder.onstop = () => sendAudioToServer(mimeType);
 
-    mediaRecorder.start(100); // chunk toutes les 100ms
+    mediaRecorder.start(); // chunk toutes les 100ms
     micBtn.classList.add('recording');
     setMicStatus('🔴 En écoute…', 'listening');
     addLog('Enregistrement démarré', 'info');
@@ -150,6 +150,7 @@ async function startRecording() {
 // ── Arrêter l'enregistrement ──
 function stopRecording() {
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.requestData(); // force flush du dernier chunk
     mediaRecorder.stop();
   }
   if (mediaStream) {

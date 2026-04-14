@@ -1,7 +1,6 @@
 //#include "imu_helpers.h"
 #include "SparkFun_BNO08x_Arduino_Library.h"
 #include <FastAccelStepper.h>
-#include <RGBmatrixPanel.h>
 #include <IRremote.h>
 #include <PID_v1.h>
 
@@ -29,7 +28,7 @@ FastAccelStepper *motorL = NULL;
 FastAccelStepper *motorR = NULL;
 
 
-             
+
 // === BNO085 ===+
 
 BNO08x imu;
@@ -46,7 +45,7 @@ BNO08x imu;
 
 
 double inputA, outputA, setpointA = EQUILIBRE;
-double KpA = 22, KiA = 0., KdA = 1.2;
+double KpA = 20, KiA = 0., KdA = 1.2;
 PID pidA(&inputA, &outputA, &setpointA, KpA, KiA, KdA, REVERSE);
 
 double inputV, outputV, currentMoveCmd = 0;

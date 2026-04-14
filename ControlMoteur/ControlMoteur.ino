@@ -86,19 +86,21 @@ void loop() {
   currentTurnCmd = turnCmd; //lowPassFilter(turnCmd, currentTurnCmd, 0.005 );
 
 
-  if ( imu.getSensorEvent() == true && imu.getSensorEventID() == SENSOR_REPORTID_ROTATION_VECTOR ) {
+  if ( imu.getSensorEvent() == true) {
+    if ( imu.getSensorEventID() == SENSOR_REPORTID_ROTATION_VECTOR ) {
     
-    inputA = (imu.getRoll()) * 180.0 / PI - 180;
-    if ( inputA < -180) inputA += 360;
-    inputV = measureSpeed();
+      inputA = (imu.getRoll()) * 180.0 / PI - 180;
+      if ( inputA < -180) inputA += 360;
+      inputV = measureSpeed();
 
-    pidV.Compute();
-    setpointA = EQUILIBRE + outputV;
-    pidA.Compute();
+      pidV.Compute();
+      setpointA = EQUILIBRE + outputV;
+      pidA.Compute();
     
-    Serial.print(inputA); Serial.print(" => "); Serial.println(outputA);
-    //Serial.print(inputV); Serial.print(" => "); Serial.println(outputV);
-    
+      Serial.print(inputA); Serial.print(" => "); Serial.println(outputA);
+      //Serial.print(inputV); Serial.print(" => "); Serial.println(outputV);
+    }    
+
   }
 
 
