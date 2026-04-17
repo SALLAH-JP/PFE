@@ -74,9 +74,9 @@ void loop() {
   //moveCmd = 0;
   //turnCmd = 0;
 
-  readSerialCommand();
-  
-  //remoteControl();
+  readSerialCommand();  
+  remoteControl();
+
   //pidA.SetTunings(KpA, KiA, KdA);
   //pidV.SetTunings(KpV, KiV, KdV);
   //lineTracking();
@@ -97,7 +97,7 @@ void loop() {
       setpointA = EQUILIBRE + outputV;
       pidA.Compute();
     
-      Serial.print(inputA); Serial.print(" => "); Serial.println(outputA);
+      //Serial.print(inputA); Serial.print(" => "); Serial.println(outputA);
       //Serial.print(inputV); Serial.print(" => "); Serial.println(outputV);
     }    
 
@@ -105,7 +105,9 @@ void loop() {
 
 
 
-  //Serial.print(inputV); Serial.print(" => "); Serial.print(KpV); Serial.print(" => "); Serial.print(KiV); Serial.print(" => "); Serial.println(KdV);
+  //Serial.print(KpA); Serial.print(" => "); Serial.print(KiA); Serial.print(" => "); Serial.println(KdA);
+  //Serial.print(KpV); Serial.print(" => "); Serial.print(KiV); Serial.print(" => "); Serial.println(KdV);
+  //Serial.println();
   //Serial.print(currentMoveCmd); Serial.print(" => "); Serial.println(currentTurnCmd);
   setMotors(outputA, currentTurnCmd);
   //temps();

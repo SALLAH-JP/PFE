@@ -124,7 +124,6 @@ def serial_sender():
             try:
                 cmd = f"{current_move} {current_turn}\n"
                 arduino.write(cmd.encode())
-                arduino.reset_input_buffer()
             except Exception as e:
                 print(f"❌  Serial error: {e}")
         time.sleep(0.005)  # 20 Hz

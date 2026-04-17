@@ -171,7 +171,7 @@ def speak(text: str) -> None:
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
             tmp = f.name
         gTTS(text=text, lang="fr").save(tmp)
-        subprocess.run(["mpg123", "-q", tmp], check=False)
+        subprocess.run(["mpg123", "-q", "--scale", "65536", tmp], check=False)
         os.unlink(tmp)
     except Exception as e:
         print(f"⚠️  TTS erreur : {e}")

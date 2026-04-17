@@ -24,19 +24,29 @@ void remoteControl() {
   
 
     else if ( ( (IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT) && (millis() - lastRemote > 100) ) || !(IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT) ) {
+    
+      bool changed = true;
 
       if ( cmd == 0x45 ) KpA += 1;
-      else if ( cmd == 0x46 ) KiA += 0.01;
+      else if ( cmd == 0x46 ) KiA += 10;
       else if ( cmd == 0x47 ) KdA += 0.1;
       else if ( cmd == 0x44 ) KpA -= 1;
-      else if ( cmd == 0x40 ) KiA -= 0.01;
+      else if ( cmd == 0x40 ) KiA -= 10;
       else if ( cmd == 0x43 ) KdA -= 0.1;
-      else if ( cmd == 0x07 ) KpV += 1;
-      else if ( cmd == 0x15 ) KiV += 0.01;
-      else if ( cmd == 0x09 ) KdV += 0.1;
-      else if ( cmd == 0x16 ) KpV -= 1;
-      else if ( cmd == 0x19 ) KiV -= 0.01;
-      else if ( cmd == 0x0D ) KdV -= 0.1;
+      else if ( cmd == 0x07 ) KpV += 0.05;
+      else if ( cmd == 0x15 ) KiV += 0.005;
+      else if ( cmd == 0x09 ) KdV += 0.005;
+      else if ( cmd == 0x16 ) KpV -= 0.1;
+      else if ( cmd == 0x19 ) KiV -= 0.005;
+      else if ( cmd == 0x0D ) KdV -= 0.005;
+      else changed = false;
+
+
+      if (changed) {
+         // Appliquer immédiatement
+         pidA.SetTunings(KpA, KiA, KdA);
+         pidV.SetTunings(KpV, KiV, KdV);
+      }
 
 
       
@@ -147,10 +157,6 @@ void readSerialCommand() {
       moveCmd = m;
       turnCmd = t;
 
-      Serial.print("CMD reçu: ");
-      Serial.print(moveCmd);
-      Serial.print(" , ");
-      Serial.println(turnCmd);
     }
   }
 }
