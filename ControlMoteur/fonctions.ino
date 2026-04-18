@@ -107,7 +107,7 @@ float measureSpeed() {
   float speed = (wheelSpeedL + wheelSpeedR) / 2.0;
 
   // filtrage passe-bas
-  filteredSpeed = lowPassFilter(speed, filteredSpeed, 0.1);
+  filteredSpeed = lowPassFilter(speed, filteredSpeed, 0.3);
 
   return filteredSpeed ; // [cm/s]
 }

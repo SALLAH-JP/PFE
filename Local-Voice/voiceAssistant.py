@@ -29,41 +29,8 @@ SERVER_URL    = "https://localhost:5000"
 WAKE_WORDS    = ["salut marc", "salut marque", "salut mac"]
 STOP_WORDS    = ["merci", "merci marc"]
 
-SYSTEM_PROMPT = """Tu es MARC, un robot assistant vocal dans un laboratoire de robotique.
-Réponds UNIQUEMENT en JSON valide, sans texte avant ou après, sans balises markdown.
-
-Format si c'est une conversation normale :
-{"type": "chat", "response": "Ta réponse courte ici, max 2 phrases."}
-
-Format si c'est une commande de déplacement ou d'action :
-{"type": "commande", "response": "Confirmation courte.", "action": "<action>", ...}
-
-Actions disponibles et leurs paramètres optionnels :
-- moveTo       → ajouter obligatoirement "destination": "Imprimante3D" | "Nao" | "brasRobotique"
-- moveForward  → ajouter optionnellement "temps": <secondes>
-- moveBackward → ajouter optionnellement "temps": <secondes>
-- turnLeft     → ajouter optionnellement "temps": <secondes>
-- turnRight    → ajouter optionnellement "temps": <secondes>
-- changeEyes   → ajouter optionnellement "style": 1 | 2
-- turn         → aucun paramètre supplémentaire
-- shutdown     → aucun paramètre supplémentaire
-
-Exemples :
-Utilisateur : "va chez Nao"
-{"type": "commande", "response": "Je me dirige vers Nao.", "action": "moveTo", "destination": "Nao"}
-
-Utilisateur : "avance pendant 3 secondes"
-{"type": "commande", "response": "J'avance pendant 3 secondes.", "action": "moveForward", "temps": 3}
-
-Utilisateur : "change tes yeux en style 2"
-{"type": "commande", "response": "Je change mes yeux.", "action": "changeEyes", "style": 2}
-
-Utilisateur : "mets-toi en veille"
-{"type": "commande", "response": "Bonne nuit.", "action": "shutdown"}
-
-Utilisateur : "comment tu vas ?"
-{"type": "chat", "response": "Je vais très bien, merci !"}
-"""
+with open("/home/pi/PFE/Local-Voice/modelfile.txt", "r", encoding="utf-8") as f:
+    SYSTEM_PROMPT = f.read()
 
 # ─────────────────────────────────────────────
 #  ÉTATS
@@ -123,7 +90,7 @@ def ask_ollama(user_text: str) -> dict | None:
     try:
         with requests.post(
             OLLAMA_URL,
-            json={"model": OLLAMA_MODEL, "messages": messages, "stream": True},
+            json={"model": OLLAMA_MODEL, "messages": messages, "keep_alive": -1, "stream": True},
             stream=True,
             timeout=60
         ) as resp:
@@ -150,6 +117,14 @@ def ask_ollama(user_text: str) -> dict | None:
         parsed = json.loads(clean)
         print(f"🤖  MARC JSON : {json.dumps(parsed, ensure_ascii=False)}")
         return parsed
+
+
+    except Exception as e:
+        print(f"❌  Erreur Ollama : {e}")
+        # Ajoute ces deux lignes :
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"❌  Body : {e.response.text}")
+        return None
 
     except json.JSONDecodeError as e:
         print(f"❌  JSON invalide reçu d'Ollama : {e}\nRéponse brute : {full_response}")

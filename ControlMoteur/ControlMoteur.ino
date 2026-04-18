@@ -71,8 +71,8 @@ void loop() {
     setReports();
   }
 
-  //moveCmd = 0;
-  //turnCmd = 0;
+  moveCmd = 0;
+  turnCmd = 0;
 
   readSerialCommand();  
   remoteControl();
@@ -85,13 +85,13 @@ void loop() {
   currentMoveCmd = moveCmd; //lowPassFilter(moveCmd, currentMoveCmd, 0.005 );
   currentTurnCmd = turnCmd; //lowPassFilter(turnCmd, currentTurnCmd, 0.005 );
 
+  inputV = measureSpeed();
 
   if ( imu.getSensorEvent() == true) {
     if ( imu.getSensorEventID() == SENSOR_REPORTID_ROTATION_VECTOR ) {
     
       inputA = (imu.getRoll()) * 180.0 / PI - 180;
       if ( inputA < -180) inputA += 360;
-      inputV = measureSpeed();
 
       pidV.Compute();
       setpointA = EQUILIBRE + outputV;

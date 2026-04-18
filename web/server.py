@@ -43,16 +43,6 @@ GIF_LISTEN = os.path.join(GIF_DIR, "style2", "neutral.gif")
 GIF_THINK  = os.path.join(GIF_DIR, "style2", "blink.gif")
 GIF_SPEAK  = os.path.join(GIF_DIR, "style2", "blink.gif")
 
-OLLAMA_URL   = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "mistral-large-3:675b-cloud"
-
-SYSTEM_PROMPT_WEB = (
-    "Tu es MARC, un robot assistant vocal qui guide les visiteurs dans un laboratoire de robotique. "
-    "Réponds de façon très courte, maximum 2 phrases. "
-    "Les stations disponibles sont : Nao, Imprimante 3D, brasRobotique. "
-    "Si l'utilisateur mentionne une destination, confirme brièvement."
-)
-
 # ─────────────────────────────────────────────
 #  ÉTAT GLOBAL
 # ─────────────────────────────────────────────
