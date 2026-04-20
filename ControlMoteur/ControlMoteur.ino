@@ -47,8 +47,9 @@ void setup() {
 
 
   // Tracking Sensor Setup
-  //pinMode(LEFT_SENSOR_PIN, INPUT);
-  //pinMode(RIGHT_SENSOR_PIN, INPUT);
+  pinMode(LEFT_SENSOR_PIN, INPUT);
+  pinMode(RIGHT_SENSOR_PIN, INPUT);
+  pinMode(CENTER_SENSOR_PIN, INPUT);
 
   // PID
   pidA.SetSampleTime(10);

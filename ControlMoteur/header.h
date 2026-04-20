@@ -47,7 +47,7 @@ double KpA = 26, KiA = 0.0, KdA = 0.5;
 PID pidA(&inputA, &outputA, &setpointA, KpA, KiA, KdA, REVERSE);
 
 double inputV, outputV, currentMoveCmd = 0;
-double KpV = 0.21, KiV = 0.0, KdV = 0;
+double KpV = 0.2, KiV = 0.0, KdV = 0;
 PID pidV(&inputV, &outputV, &currentMoveCmd, KpV, KiV, KdV, DIRECT);
 
 
@@ -68,10 +68,12 @@ unsigned long turn2Start = 0;
 
 
 // Tracking Sensor
-const int LEFT_SENSOR_PIN = 53;
-const int RIGHT_SENSOR_PIN = 52;
+const int LEFT_SENSOR_PIN = 49;
+const int RIGHT_SENSOR_PIN = 48;
+const int CENTER_SENSOR_PIN = 40;
 int leftValue;
 int rightValue;
+int centerValue;
 
 
 // Reperage des stations

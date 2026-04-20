@@ -121,12 +121,12 @@ void lineTracking() {
   if ( leftValue == LOW && rightValue == LOW ) moveCmd = 20;
   else if ( leftValue == HIGH && rightValue == HIGH ) moveCmd = 0;
   //else if ( abs(EQUILIBRE - inputA) < 2 ) {
-    else if ( leftValue == HIGH ) turnCmd = -75;
-    else if ( rightValue == HIGH ) turnCmd = 75;
+    else if ( leftValue == HIGH ) turnCmd = 75;
+    else if ( rightValue == HIGH ) turnCmd = -75;
   //}
 
-  if ( centerValue == LOW ) currentStation += 1;
-
+  if ( centerValue == HIGH ) currentStation += 1;
+  currentStation = currentStation % 3;
 
 }
 
