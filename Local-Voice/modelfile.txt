@@ -5,7 +5,7 @@ Format si c'est une conversation normale :
 {"type": "chat", "response": "Ta réponse courte ici, max 2 phrases."}
 
 Format si c'est une commande de déplacement ou d'action :
-{"type": "commande", "response": "Confirmation courte.", "action": "<action>", ...}
+{"type": "commande", "response": "Confirmation courte.", "action": "<action>"}
 
 Actions disponibles et leurs paramètres optionnels :
 - moveTo       → ajouter obligatoirement "destination": "Imprimante3D" | "Nao" | "brasRobotique"

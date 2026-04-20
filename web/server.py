@@ -30,8 +30,26 @@ except ImportError:
     print("⚠️  rgbmatrix non disponible (mode PC)")
     MATRIX_AVAILABLE = False
 
-# ── Serial (optionnel) ──
-SERIAL_AVAILABLE = True
+
+# ─────────────────────────────────────────────
+#  SERIAL (Arduino) - optionnel)
+# ─────────────────────────────────────────────
+arduino = None
+ARDUINO_PORT = '/dev/ttyACM0'
+ARDUINO_BAUD = 115200
+
+try:
+    import serial
+    arduino = serial.Serial(ARDUINO_PORT, ARDUINO_BAUD, timeout=2)
+    time.sleep(2)
+    arduino.reset_input_buffer()
+    SERIAL_AVAILABLE = True
+    print(f'[Arduino] Connecté sur {ARDUINO_PORT} ✓')
+except Exception as e:
+    print(f'[Arduino] Non connecté (ignoré) : {e}')
+    SERIAL_AVAILABLE = False
+    arduino = None
+
 
 
 # ─────────────────────────────────────────────
@@ -55,6 +73,15 @@ robot_state = {
 
 current_move = 0
 current_turn = 0
+
+station_actuelle  = -1
+destination_cible = None
+
+STATION_NUMBERS = {
+    "nao":    1,
+    "imp3d":  2,
+    "robot3": 3,
+}
 
 # ─────────────────────────────────────────────
 #  MATRIX LED
@@ -85,27 +112,6 @@ def clear_matrix() -> None:
         print("🖥️  Matrix effacée")
 
 
-# ─────────────────────────────────────────────
-#  SERIAL
-# ─────────────────────────────────────────────
-arduino = None
-ARDUINO_PORT = '/dev/ttyACM0'
-ARDUINO_BAUD = 115200
-
-
-def init_arduino():
-    global arduino
-    try:
-        import serial
-        arduino = serial.Serial(ARDUINO_PORT, ARDUINO_BAUD, timeout=2)
-        time.sleep(2)
-        arduino.reset_input_buffer()
-        print(f'[Arduino] Connecté sur {ARDUINO_PORT} ✓')
-    except Exception as e:
-        print(f'[Arduino] Non connecté (ignoré) : {e}')
-        arduino = None
-
-
 def serial_sender():
     global arduino
 
@@ -118,6 +124,38 @@ def serial_sender():
             except Exception as e:
                 print(f"❌  Serial error: {e}")
         time.sleep(0.005)  # 20 Hz
+
+
+def serial_worker():
+    global station_actuelle
+    buffer = ""
+
+    while True:
+        if SERIAL_AVAILABLE:
+            try:
+                # 1. Envoie la commande
+                cmd = f"C:{current_move}:{current_turn}\n"
+                arduino.write(cmd.encode())
+
+                # 2. Lit ce qui est disponible (non bloquant)
+                if arduino.in_waiting:
+                    chunk = arduino.read(arduino.in_waiting).decode(errors="ignore")
+                    buffer += chunk
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if line.startswith("S:"):
+                            try:
+                                station_actuelle = int(line[2:])
+                                print(f"📍 Station : {station_actuelle}")
+                                check_destination()
+                            except ValueError:
+                                pass
+
+            except Exception as e:
+                print(f"❌  Serial error: {e}")
+
+        time.sleep(0.005)  # 200 Hz
 
 
 def send_serial_timed(move: int, turn: int, duration: float | None):
@@ -428,8 +466,7 @@ def transcribe():
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
     print("🚀  MARC Robot server démarré sur https://11.255.255.119:5000")
-    init_arduino()
-    threading.Thread(target=serial_sender, daemon=True).start()
+    threading.Thread(target=serial_worker, daemon=True).start()
     show_gif(GIF_IDLE)
     WEB_DIR = os.path.dirname(os.path.abspath(__file__))
     app.run(host="0.0.0.0", port=5000, debug=False, ssl_context=(

@@ -47,7 +47,7 @@ double KpA = 26, KiA = 0.0, KdA = 0.5;
 PID pidA(&inputA, &outputA, &setpointA, KpA, KiA, KdA, REVERSE);
 
 double inputV, outputV, currentMoveCmd = 0;
-double KpV = 0.2, KiV = 0.05, KdV = 0;
+double KpV = 0.21, KiV = 0.0, KdV = 0;
 PID pidV(&inputV, &outputV, &currentMoveCmd, KpV, KiV, KdV, DIRECT);
 
 
@@ -72,4 +72,9 @@ const int LEFT_SENSOR_PIN = 53;
 const int RIGHT_SENSOR_PIN = 52;
 int leftValue;
 int rightValue;
+
+
+// Reperage des stations
+int currentStation = 0;   // station détectée actuellement
+int lastSentStation = 0;  // dernière station envoyée au Pi
 

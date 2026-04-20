@@ -74,12 +74,13 @@ void loop() {
   moveCmd = 0;
   turnCmd = 0;
 
-  readSerialCommand();  
+  readSerialCommand();
+  sendStationIfChanged();
   remoteControl();
 
   //pidA.SetTunings(KpA, KiA, KdA);
   //pidV.SetTunings(KpV, KiV, KdV);
-  //lineTracking();
+  lineTracking();
 
   // filtrage passe-bas des commandes
   currentMoveCmd = moveCmd; //lowPassFilter(moveCmd, currentMoveCmd, 0.005 );

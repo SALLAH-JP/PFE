@@ -116,6 +116,7 @@ float measureSpeed() {
 void lineTracking() {
   leftValue = digitalRead(LEFT_SENSOR_PIN);
   rightValue = digitalRead(RIGHT_SENSOR_PIN);
+  centerValue = digitalRead(CENTER_SENSOR_PIN);
 
   if ( leftValue == LOW && rightValue == LOW ) moveCmd = 20;
   else if ( leftValue == HIGH && rightValue == HIGH ) moveCmd = 0;
@@ -123,6 +124,8 @@ void lineTracking() {
     else if ( leftValue == HIGH ) turnCmd = -75;
     else if ( rightValue == HIGH ) turnCmd = 75;
   //}
+
+  if ( centerValue == LOW ) currentStation += 1;
 
 
 }
@@ -149,14 +152,38 @@ void temps() {
 
 
 void readSerialCommand() {
-  if (Serial.available()) {
-    String input = Serial.readStringUntil('\n');
+  static char buf[32];
+  static int  idx = 0;
 
-    int m, t;
-    if (sscanf(input.c_str(), "%d %d", &m, &t) == 2) {
-      moveCmd = m;
-      turnCmd = t;
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n') {
+      buf[idx] = '\0';
+      idx = 0;
 
+      // Parse "C:move:turn"
+      if (buf[0] == 'C' && buf[1] == ':') {
+        int m, t;
+        if (sscanf(buf + 2, "%d:%d", &m, &t) == 2) {
+          moveCmd = m;
+          turnCmd = t;
+        }
+      }
+
+      // Envoie station si changement
+      sendStationIfChanged();
+
+    } else if (idx < 31) {
+      buf[idx++] = c;
     }
+  }
+}
+
+void sendStationIfChanged() {
+
+  if (currentStation != lastSentStation) {
+    Serial.print("S:");
+    Serial.println(currentStation);
+    lastSentStation = currentStation;
   }
 }

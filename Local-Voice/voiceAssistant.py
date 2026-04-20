@@ -3,6 +3,7 @@
 MARC Robot — voiceAssistant.py
 Pipeline vocal : Wake word → Ollama (JSON strict) → HTTP → server.py
 """
+
 import urllib3
 import json
 import time
@@ -12,6 +13,7 @@ import tempfile
 import os
 import speech_recognition as sr
 from gtts import gTTS
+from pathlib import Path
 
 
 
@@ -29,7 +31,8 @@ SERVER_URL    = "https://localhost:5000"
 WAKE_WORDS    = ["salut marc", "salut marque", "salut mac"]
 STOP_WORDS    = ["merci", "merci marc"]
 
-with open("/home/pi/PFE/Local-Voice/modelfile.txt", "r", encoding="utf-8") as f:
+BASE_DIR = Path(__file__).parent
+with open(BASE_DIR / "modelfile.txt", "r", encoding="utf-8") as f:
     SYSTEM_PROMPT = f.read()
 
 # ─────────────────────────────────────────────
@@ -138,8 +141,10 @@ def ask_ollama(user_text: str) -> dict | None:
 
 
 # ─────────────────────────────────────────────
-#  TTS — gTTS + mpg123
+#  TTS — gTTS + mpg123 or PIPER
 # ─────────────────────────────────────────────
+PIPER_EXE   = BASE_DIR / "piper" / "piper"          # ou "piper.exe" sur Windows
+PIPER_MODEL = BASE_DIR / "piper" / "fr_FR-siwis-medium.onnx"
 def speak(text: str) -> None:
     print(f"🔊  {text[:80]}{'…' if len(text) > 80 else ''}")
     try:
@@ -148,6 +153,27 @@ def speak(text: str) -> None:
         gTTS(text=text, lang="fr").save(tmp)
         subprocess.run(["mpg123", "-q", "--scale", "65536", tmp], check=False)
         os.unlink(tmp)
+    except Exception as e:
+        print(f"⚠️  TTS erreur : {e}")
+
+
+
+def speak2(text: str) -> None:
+    print(f"🔊  {text[:80]}{'…' if len(text) > 80 else ''}")
+    try:
+        piper = subprocess.Popen(
+            ["piper", "--model", PIPER_MODEL, "--output-raw"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL
+        )
+        aplay = subprocess.Popen(
+            ["aplay", "-r", "22050", "-f", "S16_LE", "-c", "1", "-q"],
+            stdin=piper.stdout
+        )
+        piper.stdin.write(text.encode())
+        piper.stdin.close()
+        aplay.wait()
     except Exception as e:
         print(f"⚠️  TTS erreur : {e}")
 
