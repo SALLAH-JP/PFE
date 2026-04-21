@@ -77,11 +77,12 @@ void loop() {
 
   readSerialCommand();
   sendStationIfChanged();
-  remoteControl();
 
-  //pidA.SetTunings(KpA, KiA, KdA);
-  //pidV.SetTunings(KpV, KiV, KdV);
-  lineTracking();
+  if (lineFollowingMode) {
+    lineTracking();        // suit la ligne, ignore la télécommande
+  } else {
+    remoteControl();       // télécommande active, pas de suivi
+  }
 
   // filtrage passe-bas des commandes
   currentMoveCmd = moveCmd; //lowPassFilter(moveCmd, currentMoveCmd, 0.005 );

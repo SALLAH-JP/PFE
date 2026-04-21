@@ -3,7 +3,6 @@
 MARC Robot — server.py
 Serveur Flask : reçoit les commandes depuis voiceAssistant.py (HTTP)
 et depuis l'interface web (boutons/clics).
-Utilise les fonctions de voiceAssistant.py pour éviter les doublons.
 """
 
 import os
@@ -11,7 +10,7 @@ import sys
 import time
 import tempfile
 import threading
-import requests
+import json
 
 from flask import Flask, request, jsonify, send_from_directory
 
@@ -32,9 +31,9 @@ except ImportError:
 
 
 # ─────────────────────────────────────────────
-#  SERIAL (Arduino) - optionnel)
+#  SERIAL (Arduino)
 # ─────────────────────────────────────────────
-arduino = None
+arduino      = None
 ARDUINO_PORT = '/dev/ttyACM0'
 ARDUINO_BAUD = 115200
 
@@ -51,37 +50,62 @@ except Exception as e:
     arduino = None
 
 
-
 # ─────────────────────────────────────────────
 #  CONFIGURATION
 # ─────────────────────────────────────────────
-GIF_DIR    = os.path.join(ROOT, "matrixLed")
-GIF_IDLE   = os.path.join(GIF_DIR, "style2", "blink.gif")
-GIF_LISTEN = os.path.join(GIF_DIR, "style2", "neutral.gif")
-GIF_THINK  = os.path.join(GIF_DIR, "style2", "blink.gif")
-GIF_SPEAK  = os.path.join(GIF_DIR, "style2", "blink.gif")
+GIF_DIR  = os.path.join(ROOT, "matrixLed")
+GIF_IDLE = os.path.join(GIF_DIR, "style2", "blink.gif")
+
 
 # ─────────────────────────────────────────────
 #  ÉTAT GLOBAL
 # ─────────────────────────────────────────────
 robot_state = {
-    "current":  "nao",
-    "target":   None,
-    "eyes":     1,
-    "mode":     "idle",   # "idle" | "active"
+    "current": "base",
+    "target":  None,
+    "eyes":    1,
+    "mode":    "idle",
 }
 
-current_move = 0
-current_turn = 0
-
+current_move      = 0
+current_turn      = 0
 station_actuelle  = -1
 destination_cible = None
+line_following    = False
 
+# Numéro de station physique → id web
 STATION_NUMBERS = {
+    "base":   0,
     "nao":    1,
-    "imp3d":  2,
-    "robot3": 3,
+    "vector": 2,
+    "pepper": 3,
+    "imp3d":  4,
+    "baxter": 5,
+    "bras":   6,
 }
+
+# Numéro physique → id web (inverse)
+STATION_BY_NUMBER = {v: k for k, v in STATION_NUMBERS.items()}
+
+# Nom LLM → id web
+DESTINATION_MAP = {
+    "Nao":           "nao",
+    "Vector":        "vector",
+    "Pepper":        "pepper",
+    "Imprimante3D":  "imp3d",
+    "Baxter":        "baxter",
+    "brasRobotique": "bras",
+    "Base":          "base",
+}
+
+
+# ─────────────────────────────────────────────
+#  HELPERS ÉTAT
+# ─────────────────────────────────────────────
+def full_state() -> dict:
+    """Retourne robot_state enrichi avec line_following."""
+    return {**robot_state, "line_following": line_following}
+
 
 # ─────────────────────────────────────────────
 #  MATRIX LED
@@ -112,20 +136,9 @@ def clear_matrix() -> None:
         print("🖥️  Matrix effacée")
 
 
-def serial_sender():
-    global arduino
-
-    while True:
-        if SERIAL_AVAILABLE:
-            try:
-                cmd = f"{current_move} {current_turn}\n"
-                arduino.write(cmd.encode())
-                arduino.reset_input_buffer()
-            except Exception as e:
-                print(f"❌  Serial error: {e}")
-        time.sleep(0.005)  # 20 Hz
-
-
+# ─────────────────────────────────────────────
+#  SERIAL WORKER
+# ─────────────────────────────────────────────
 def serial_worker():
     global station_actuelle
     buffer = ""
@@ -133,11 +146,11 @@ def serial_worker():
     while True:
         if SERIAL_AVAILABLE:
             try:
-                # 1. Envoie la commande
+                # 1. Envoie la commande moteur
                 cmd = f"C:{current_move}:{current_turn}\n"
                 arduino.write(cmd.encode())
 
-                # 2. Lit ce qui est disponible (non bloquant)
+                # 2. Lit les réponses (non bloquant)
                 if arduino.in_waiting:
                     chunk = arduino.read(arduino.in_waiting).decode(errors="ignore")
                     buffer += chunk
@@ -158,8 +171,23 @@ def serial_worker():
         time.sleep(0.005)  # 200 Hz
 
 
+def check_destination():
+    global current_move, current_turn, destination_cible, line_following
+    if destination_cible is not None and station_actuelle == destination_cible:
+        current_move      = 0
+        current_turn      = 0
+        # Met à jour la position courante sur l'interface web
+        dest_id = STATION_BY_NUMBER.get(station_actuelle)
+        if dest_id:
+            robot_state["current"] = dest_id
+        robot_state["target"] = None
+        destination_cible     = None
+        send_mode(False)  # repasse en mode manuel
+        print(f"✅  Arrivé station {station_actuelle} ({dest_id})")
+        tts("Je suis arrivé à destination.")
+
+
 def send_serial_timed(move: int, turn: int, duration: float | None):
-    """Envoie une commande série, avec arrêt automatique si durée fournie."""
     global current_move, current_turn
     current_move = move
     current_turn = turn
@@ -171,28 +199,46 @@ def send_serial_timed(move: int, turn: int, duration: float | None):
             current_turn = 0
         threading.Thread(target=stop_after, daemon=True).start()
 
+
+def send_mode(enabled: bool):
+    global line_following
+    line_following = enabled
+    if SERIAL_AVAILABLE:
+        try:
+            arduino.write(f"M:{'1' if enabled else '0'}\n".encode())
+        except Exception as e:
+            print(f"❌  Erreur envoi mode : {e}")
+    print(f"🚦 Mode ligne : {'ON' if enabled else 'OFF'}")
+
+
 TMP_DIR = tempfile.gettempdir()
 
 def tts(text: str) -> None:
-    """Joue le TTS localement sur le serveur dans un thread séparé."""
     threading.Thread(target=speak, args=(text,), daemon=True).start()
+
+
+# ─────────────────────────────────────────────
+#  CONTEXTE LLM DYNAMIQUE
+# ─────────────────────────────────────────────
+def build_extra_context() -> str:
+    return f"""ÉTAT ACTUEL DU ROBOT :
+- Mode guide (suivi de ligne) : {"ACTIF" if line_following else "INACTIF"}
+- Position actuelle : {robot_state.get("current", "inconnue")}
+- Destination en cours : {robot_state.get("target", "aucune")}
+
+Règles :
+- Si l'utilisateur demande un moveTo ET que le mode guide est INACTIF, ne génère PAS d'action moveTo.
+  Réponds en chat pour l'informer que le mode guide est inactif et demande s'il veut l'activer.
+- Si l'utilisateur confirme vouloir activer le mode guide, génère :
+  {{"type": "commande", "action": "enableLineFollowing", "response": "Mode guide activé, je me dirige vers <destination>.", "destination": "<destination>"}}
+- Si le mode guide est ACTIF, génère les actions moveTo normalement."""
 
 
 # ─────────────────────────────────────────────
 #  EXÉCUTION DES ACTIONS
 # ─────────────────────────────────────────────
-DESTINATION_MAP = {
-    "Nao":          "nao",
-    "Imprimante3D": "imp3d",
-    "brasRobotique": "robot3",
-}
-
 def execute_action(payload: dict) -> dict:
-    """
-    Reçoit le payload JSON (issu du LLM ou du clic web)
-    et exécute l'action correspondante.
-    Retourne un dict de résultat.
-    """
+    global destination_cible, current_move, current_turn
     action = payload.get("action")
     result = {"ok": True, "action": action}
 
@@ -201,16 +247,39 @@ def execute_action(payload: dict) -> dict:
     if action == "moveTo":
         dest_raw = payload.get("destination", "")
         dest_id  = DESTINATION_MAP.get(dest_raw, dest_raw.lower())
-        robot_state["target"]  = dest_id
-        # Simulation du déplacement (remplace par la vraie logique robot)
-        threading.Thread(target=_simulate_move, args=(dest_id,), daemon=True).start()
+        num      = STATION_NUMBERS.get(dest_id)
+        if num is not None:
+            destination_cible     = num
+            current_move          = 20
+            current_turn          = 0
+            send_mode(True)
+        robot_state["target"] = dest_id
         result["destination"] = dest_id
+
+    elif action == "enableLineFollowing":
+        dest_raw = payload.get("destination", "")
+        dest_id  = DESTINATION_MAP.get(dest_raw, dest_raw.lower())
+        num      = STATION_NUMBERS.get(dest_id)
+        send_mode(True)
+        if num is not None:
+            destination_cible     = num
+            current_move          = 20
+            current_turn          = 0
+        robot_state["target"] = dest_id
+        result["destination"] = dest_id
+    
+    elif action == "disableLineFollowing":
+        send_mode(False)
+        current_move      = 0
+        current_turn      = 0
+        destination_cible = None
+        robot_state["target"] = None
+        result["mode"] = "manual"
 
     elif action == "moveForward":
         duration = payload.get("temps")
         send_serial_timed(20, 0, duration)
         result["duration"] = duration
-        print("Action Executer")
 
     elif action == "moveBackward":
         duration = payload.get("temps")
@@ -228,11 +297,10 @@ def execute_action(payload: dict) -> dict:
         result["duration"] = duration
 
     elif action == "turn":
-        # Tour complet : à adapter selon ton implémentation
-        send_serial_timed(0, 200, 2.0)  # 2s de rotation = ~360°
+        send_serial_timed(0, 200, 2.0)
 
     elif action == "changeEyes":
-        style = payload.get("style", 1)
+        style    = payload.get("style", 1)
         robot_state["eyes"] = style
         gif_path = os.path.join(GIF_DIR, f"style{style}", "blink.gif")
         show_gif(gif_path)
@@ -252,19 +320,9 @@ def execute_action(payload: dict) -> dict:
     return result
 
 
-def _simulate_move(dest_id: str):
-    """Simulation de déplacement (à remplacer par la vraie navigation)."""
-    time.sleep(1.5)
-    robot_state["current"] = dest_id
-    robot_state["target"]  = None
-    print(f"✅  Robot arrivé à {dest_id}")
-
-
 # ─────────────────────────────────────────────
 #  FLASK APP
 # ─────────────────────────────────────────────
-import json
-
 app = Flask(__name__, static_folder=".")
 
 
@@ -281,7 +339,7 @@ def static_files(filename):
 # ── État du robot ──
 @app.route("/status")
 def status():
-    return jsonify({"robot_state": robot_state})
+    return jsonify({"robot_state": full_state()})
 
 
 # ─────────────────────────────────────────────
@@ -289,28 +347,22 @@ def status():
 # ─────────────────────────────────────────────
 @app.route("/vocal_command", methods=["POST"])
 def vocal_command():
-    """
-    Reçoit le payload JSON complet généré par le LLM depuis voiceAssistant.py.
-    Format attendu :
-      {"type": "commande", "action": "...", "response": "...", ...}
-    """
     payload = request.get_json()
     if not payload:
         return jsonify({"error": "payload vide"}), 400
 
-    action      = payload.get("action")
-    type_       = payload.get("type")
-    response    = payload.get("response", "")
+    action   = payload.get("action")
+    type_    = payload.get("type")
+    response = payload.get("response", "")
 
     if type_ == "chat":
-        # Pas d'action à exécuter, juste ack
-        return jsonify({"ok": True, "type": "chat", "robot_state": robot_state})
+        return jsonify({"ok": True, "type": "chat", "robot_state": full_state()})
 
     if not action:
         return jsonify({"error": "action manquante"}), 400
 
     result = execute_action(payload)
-    result["robot_state"] = robot_state
+    result["robot_state"] = full_state()
     result["response"]    = response
     return jsonify(result)
 
@@ -319,35 +371,56 @@ def vocal_command():
 #  ROUTE : Commande depuis l'interface web (clic)
 # ─────────────────────────────────────────────
 @app.route("/command", methods=["POST"])
+@app.route("/command", methods=["POST"])
 def command():
-    """
-    Reçoit une destination depuis l'interface web (clic sur carte/SVG).
-    Génère une réponse LLM et exécute le moveTo.
-    """
     data        = request.get_json()
     destination = data.get("destination")
 
     if not destination:
         return jsonify({"error": "destination manquante"}), 400
 
-    # Mapper l'id web vers le nom LLM
     web_to_llm = {v: k for k, v in DESTINATION_MAP.items()}
     dest_name  = web_to_llm.get(destination, destination)
 
-    # Réponse LLM (utilise ask_ollama de voiceAssistant)
-    llm_result = ask_ollama(f"Je dois me déplacer vers {dest_name}. Confirme brièvement.")
-    ai_reply   = llm_result.get("response", f"Je me dirige vers {dest_name}.") if llm_result else f"Je me dirige vers {dest_name}."
+    llm_result = ask_ollama(
+        f"Je dois me déplacer vers {dest_name}. Confirme brièvement.",
+        extra_context=build_extra_context()
+    )
 
-    # Exécuter le déplacement
-    execute_action({"action": "moveTo", "destination": dest_name})
+    ai_reply = (
+        llm_result.get("response", f"Je me dirige vers {dest_name}.")
+        if llm_result else f"Je me dirige vers {dest_name}."
+    )
 
-    # TTS local sur le serveur
+    # ← N'exécute l'action QUE si le LLM génère une commande
+    if llm_result and llm_result.get("type") == "commande":
+        execute_action(llm_result)
+
     tts(ai_reply)
 
     return jsonify({
-        "robot_state": robot_state,
+        "robot_state": full_state(),
         "ai_reply":    ai_reply,
     })
+
+
+# ─────────────────────────────────────────────
+#  ROUTE : Toggle mode guide
+# ─────────────────────────────────────────────
+@app.route("/line_following", methods=["POST"])
+def toggle_line_following():
+    global current_move, current_turn, destination_cible
+    data    = request.get_json()
+    enabled = data.get("enabled", not line_following)
+    send_mode(enabled)
+
+    if not enabled:
+        current_move      = 0
+        current_turn      = 0
+        destination_cible = None
+        robot_state["target"] = None
+
+    return jsonify({"robot_state": full_state()})
 
 
 # ─────────────────────────────────────────────
@@ -358,7 +431,7 @@ def send_text():
     data      = request.get_json()
     user_text = data.get("user_text", "")
 
-    llm_result = ask_ollama(user_text)
+    llm_result = ask_ollama(user_text, extra_context=build_extra_context())
     if not llm_result:
         return jsonify({"error": "LLM indisponible"}), 503
 
@@ -372,8 +445,7 @@ def send_text():
 
     return jsonify({
         "ai_reply":    ai_reply,
-        "destination": DESTINATION_MAP.get(llm_result.get("destination", ""), None),
-        "robot_state": robot_state,
+        "robot_state": full_state(),
     })
 
 
@@ -401,7 +473,11 @@ def transcribe():
 
     audio_file = request.files["audio"]
     mimetype   = audio_file.mimetype or ""
-    suffix     = ".webm" if "webm" in mimetype else ".ogg" if "ogg" in mimetype else ".mp4" if "mp4" in mimetype else ".webm"
+    suffix     = (
+        ".webm" if "webm" in mimetype else
+        ".ogg"  if "ogg"  in mimetype else
+        ".mp4"  if "mp4"  in mimetype else ".webm"
+    )
 
     tmp_input = tempfile.NamedTemporaryFile(suffix=suffix, delete=False, dir=TMP_DIR)
     audio_file.save(tmp_input.name)
@@ -413,7 +489,6 @@ def transcribe():
     if not wav_path:
         return jsonify({"error": "Conversion audio échouée — installe ffmpeg"}), 500
 
-    # Transcription Google (utilise le recognizer de voiceAssistant)
     transcript = ""
     try:
         with sr.AudioFile(wav_path) as source:
@@ -433,31 +508,25 @@ def transcribe():
         return jsonify({
             "transcript":  "",
             "ai_reply":    "Je n'ai pas compris.",
-            "destination": None,
-            "robot_state": robot_state,
+            "robot_state": full_state(),
         })
 
-    # Traiter via LLM
-    llm_result = ask_ollama(transcript)
+    llm_result = ask_ollama(transcript, extra_context=build_extra_context())
     if not llm_result:
         return jsonify({"error": "LLM indisponible"}), 503
 
     ai_reply = llm_result.get("response", "")
     action   = llm_result.get("action")
-    dest_id  = None
 
     if llm_result.get("type") == "commande" and action:
         execute_action(llm_result)
-        if action == "moveTo":
-            dest_id = DESTINATION_MAP.get(llm_result.get("destination", ""), None)
 
     tts(ai_reply)
 
     return jsonify({
         "transcript":  transcript,
         "ai_reply":    ai_reply,
-        "destination": dest_id,
-        "robot_state": robot_state,
+        "robot_state": full_state(),
     })
 
 

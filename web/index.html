@@ -22,7 +22,14 @@
 
     <!-- ===== PARCOURS SVG ===== -->
     <section class="parcours-card">
-      <p class="card-label">Parcours Robotique</p>
+      <div class="parcours-header">
+        <p class="card-label">Parcours Robotique</p>
+        <button class="guide-toggle" id="guideToggle" onclick="toggleGuideMode()">
+          <span class="guide-dot" id="guideDot"></span>
+          <span id="guideLabel">Mode guide OFF</span>
+        </button>
+      </div>
+
       <div class="parcours-wrap">
         <svg id="parcours-svg" viewBox="0 0 580 380" xmlns="http://www.w3.org/2000/svg">
 
@@ -39,76 +46,74 @@
           <text x="290" y="200" class="center-label">Robotique</text>
 
           <!-- Flèches direction -->
-          <polygon points="388,46 398,42 394,54" fill="#c0c8dc"/>
+          <polygon points="388,46 398,42 394,54"   fill="#c0c8dc"/>
           <polygon points="502,152 510,144 512,158" fill="#c0c8dc"/>
           <polygon points="394,338 382,342 386,330" fill="#c0c8dc"/>
           <polygon points="186,338 176,332 182,322" fill="#c0c8dc"/>
-          <polygon points="72,152 64,160 66,148" fill="#c0c8dc"/>
-          <polygon points="162,44 150,48 154,36" fill="#c0c8dc"/>
+          <polygon points="72,152 64,160 66,148"    fill="#c0c8dc"/>
+          <polygon points="162,44 150,48 154,36"    fill="#c0c8dc"/>
 
-          <!-- ═══ STATIONS ═══ -->
+          <!-- STATION 0 — Base MARC (centre) -->
+          <g class="station" id="st-base" onclick="selectStation('base')">
+            <circle cx="290" cy="190" r="28" class="station-circle"/>
+            <circle cx="290" cy="190" r="22" class="station-inner"/>
+            <text x="290" y="186" class="station-emoji">🏠</text>
+            <text x="290" y="199" class="station-name">Base</text>
+          </g>
 
-          <!-- NAO — gauche -->
+          <!-- STATION 1 — Nao (gauche) -->
           <g class="station" id="st-nao" onclick="selectStation('nao')">
-            <circle cx="52" cy="190" r="28" class="station-circle" id="sc-nao"/>
-            <circle cx="52" cy="190" r="22" class="station-inner" id="si-nao"/>
+            <circle cx="52" cy="190" r="28" class="station-circle"/>
+            <circle cx="52" cy="190" r="22" class="station-inner"/>
             <text x="52" y="186" class="station-emoji">🤖</text>
             <text x="52" y="199" class="station-name">Nao</text>
           </g>
 
-          <!-- IMPRIMANTE 3D — haut gauche -->
-          <g class="station" id="st-imp3d" onclick="selectStation('imp3d')">
-            <circle cx="183" cy="46" r="28" class="station-circle" id="sc-imp3d"/>
-            <circle cx="183" cy="46" r="22" class="station-inner" id="si-imp3d"/>
-            <text x="183" y="42" class="station-emoji">🖨️</text>
-            <text x="183" y="55" class="station-name">Imp. 3D</text>
+          <!-- STATION 2 — Vector (haut gauche) -->
+          <g class="station" id="st-vector" onclick="selectStation('vector')">
+            <circle cx="183" cy="46" r="28" class="station-circle"/>
+            <circle cx="183" cy="46" r="22" class="station-inner"/>
+            <text x="183" y="42" class="station-emoji">🚗</text>
+            <text x="183" y="55" class="station-name">Vector</text>
           </g>
 
-          <!-- PEPPER — haut droite -->
+          <!-- STATION 3 — Pepper (haut droite) -->
           <g class="station" id="st-pepper" onclick="selectStation('pepper')">
-            <circle cx="397" cy="46" r="28" class="station-circle" id="sc-pepper"/>
-            <circle cx="397" cy="46" r="22" class="station-inner" id="si-pepper"/>
+            <circle cx="397" cy="46" r="28" class="station-circle"/>
+            <circle cx="397" cy="46" r="22" class="station-inner"/>
             <text x="397" y="42" class="station-emoji">🤖</text>
             <text x="397" y="55" class="station-name">Pepper</text>
           </g>
 
-          <!-- ROBOT 3 — droite -->
-          <g class="station" id="st-robot3" onclick="selectStation('robot3')">
-            <circle cx="528" cy="190" r="28" class="station-circle" id="sc-robot3"/>
-            <circle cx="528" cy="190" r="22" class="station-inner" id="si-robot3"/>
-            <text x="528" y="186" class="station-emoji">⚙️</text>
-            <text x="528" y="199" class="station-name">Robot 3</text>
+          <!-- STATION 4 — Imprimante 3D (droite) -->
+          <g class="station" id="st-imp3d" onclick="selectStation('imp3d')">
+            <circle cx="528" cy="190" r="28" class="station-circle"/>
+            <circle cx="528" cy="190" r="22" class="station-inner"/>
+            <text x="528" y="186" class="station-emoji">🖨️</text>
+            <text x="528" y="199" class="station-name">Imp. 3D</text>
           </g>
 
-          <!-- ROBOT 4 — bas droite -->
-          <g class="station" id="st-robot4" onclick="selectStation('robot4')">
-            <circle cx="397" cy="334" r="28" class="station-circle" id="sc-robot4"/>
-            <circle cx="397" cy="334" r="22" class="station-inner" id="si-robot4"/>
-            <text x="397" y="330" class="station-emoji">⚙️</text>
-            <text x="397" y="343" class="station-name">Robot 4</text>
+          <!-- STATION 5 — Baxter (bas droite) -->
+          <g class="station" id="st-baxter" onclick="selectStation('baxter')">
+            <circle cx="397" cy="334" r="28" class="station-circle"/>
+            <circle cx="397" cy="334" r="22" class="station-inner"/>
+            <text x="397" y="330" class="station-emoji">🦾</text>
+            <text x="397" y="343" class="station-name">Baxter</text>
           </g>
 
-          <!-- ROBOT 5 — bas centre -->
-          <g class="station" id="st-robot5" onclick="selectStation('robot5')">
-            <circle cx="290" cy="338" r="28" class="station-circle" id="sc-robot5"/>
-            <circle cx="290" cy="338" r="22" class="station-inner" id="si-robot5"/>
-            <text x="290" y="334" class="station-emoji">⚙️</text>
-            <text x="290" y="347" class="station-name">Robot 5</text>
+          <!-- STATION 6 — Bras robotique (bas gauche) -->
+          <g class="station" id="st-bras" onclick="selectStation('bras')">
+            <circle cx="183" cy="334" r="28" class="station-circle"/>
+            <circle cx="183" cy="334" r="22" class="station-inner"/>
+            <text x="183" y="330" class="station-emoji">🦿</text>
+            <text x="183" y="343" class="station-name">Bras</text>
           </g>
 
-          <!-- ROBOT 6 — bas gauche -->
-          <g class="station" id="st-robot6" onclick="selectStation('robot6')">
-            <circle cx="183" cy="334" r="28" class="station-circle" id="sc-robot6"/>
-            <circle cx="183" cy="334" r="22" class="station-inner" id="si-robot6"/>
-            <text x="183" y="330" class="station-emoji">⚙️</text>
-            <text x="183" y="343" class="station-name">Robot 6</text>
-          </g>
-
-          <!-- Nash robot mobile -->
-          <g id="nash-robot">
-            <circle id="nash-glow" cx="52" cy="190" r="20" fill="rgba(59,125,248,0.18)" />
-            <circle id="nash-dot"  cx="52" cy="190" r="13" fill="#3b7df8" stroke="white" stroke-width="2.5" />
-            <text   id="nash-text" x="52"  y="194"  class="nash-text">N</text>
+          <!-- MARC robot mobile -->
+          <g id="marc-robot">
+            <circle id="marc-glow" cx="290" cy="190" r="20" fill="rgba(59,125,248,0.18)" />
+            <circle id="marc-dot"  cx="290" cy="190" r="13" fill="#3b7df8" stroke="white" stroke-width="2.5" />
+            <text   id="marc-text" x="290"  y="194"  class="marc-text">M</text>
           </g>
 
         </svg>
@@ -125,33 +130,33 @@
     <aside class="controls-panel">
       <p class="card-label" style="padding-left:4px;margin-bottom:8px">Destinations</p>
 
+      <div class="station-card" id="card-base"   onclick="selectStation('base')">
+        <div class="station-info"><div class="station-icon-sm">🏠</div><div><div class="station-card-name">Base</div><div class="station-card-sub">Station 0 — départ</div></div></div>
+        <div class="station-badge" id="badge-base">—</div>
+      </div>
       <div class="station-card" id="card-nao"    onclick="selectStation('nao')">
-        <div class="station-info"><div class="station-icon-sm">🤖</div><div><div class="station-card-name">Nao</div><div class="station-card-sub">Robot humanoïde</div></div></div>
+        <div class="station-info"><div class="station-icon-sm">🤖</div><div><div class="station-card-name">Nao</div><div class="station-card-sub">Station 1 — humanoïde</div></div></div>
         <div class="station-badge" id="badge-nao">—</div>
       </div>
-      <div class="station-card" id="card-imp3d"  onclick="selectStation('imp3d')">
-        <div class="station-info"><div class="station-icon-sm">🖨️</div><div><div class="station-card-name">Imprimante 3D</div><div class="station-card-sub">Station fabrication</div></div></div>
-        <div class="station-badge" id="badge-imp3d">—</div>
+      <div class="station-card" id="card-vector" onclick="selectStation('vector')">
+        <div class="station-info"><div class="station-icon-sm">🚗</div><div><div class="station-card-name">Vector</div><div class="station-card-sub">Station 2 — mobile autonome</div></div></div>
+        <div class="station-badge" id="badge-vector">—</div>
       </div>
       <div class="station-card" id="card-pepper" onclick="selectStation('pepper')">
-        <div class="station-info"><div class="station-icon-sm">🤖</div><div><div class="station-card-name">Pepper</div><div class="station-card-sub">Robot interactif</div></div></div>
+        <div class="station-info"><div class="station-icon-sm">🤖</div><div><div class="station-card-name">Pepper</div><div class="station-card-sub">Station 3 — social</div></div></div>
         <div class="station-badge" id="badge-pepper">—</div>
       </div>
-      <div class="station-card" id="card-robot3" onclick="selectStation('robot3')">
-        <div class="station-info"><div class="station-icon-sm">⚙️</div><div><div class="station-card-name">Robot 3</div><div class="station-card-sub">Station est</div></div></div>
-        <div class="station-badge" id="badge-robot3">—</div>
+      <div class="station-card" id="card-imp3d"  onclick="selectStation('imp3d')">
+        <div class="station-info"><div class="station-icon-sm">🖨️</div><div><div class="station-card-name">Imprimante 3D</div><div class="station-card-sub">Station 4 — fabrication</div></div></div>
+        <div class="station-badge" id="badge-imp3d">—</div>
       </div>
-      <div class="station-card" id="card-robot4" onclick="selectStation('robot4')">
-        <div class="station-info"><div class="station-icon-sm">⚙️</div><div><div class="station-card-name">Robot 4</div><div class="station-card-sub">Station sud-est</div></div></div>
-        <div class="station-badge" id="badge-robot4">—</div>
+      <div class="station-card" id="card-baxter" onclick="selectStation('baxter')">
+        <div class="station-info"><div class="station-icon-sm">🦾</div><div><div class="station-card-name">Baxter</div><div class="station-card-sub">Station 5 — collaboratif</div></div></div>
+        <div class="station-badge" id="badge-baxter">—</div>
       </div>
-      <div class="station-card" id="card-robot5" onclick="selectStation('robot5')">
-        <div class="station-info"><div class="station-icon-sm">⚙️</div><div><div class="station-card-name">Robot 5</div><div class="station-card-sub">Station sud</div></div></div>
-        <div class="station-badge" id="badge-robot5">—</div>
-      </div>
-      <div class="station-card" id="card-robot6" onclick="selectStation('robot6')">
-        <div class="station-info"><div class="station-icon-sm">⚙️</div><div><div class="station-card-name">Robot 6</div><div class="station-card-sub">Station sud-ouest</div></div></div>
-        <div class="station-badge" id="badge-robot6">—</div>
+      <div class="station-card" id="card-bras"   onclick="selectStation('bras')">
+        <div class="station-info"><div class="station-icon-sm">🦿</div><div><div class="station-card-name">Bras robotique</div><div class="station-card-sub">Station 6 — Franka Panda</div></div></div>
+        <div class="station-badge" id="badge-bras">—</div>
       </div>
     </aside>
 
@@ -177,7 +182,7 @@
             <span id="userText" class="transcript-box">—</span>
           </div>
           <div class="mic-line ai-line">
-            <span class="mic-line-label">Nash</span>
+            <span class="mic-line-label">MARC</span>
             <span id="aiReply" class="transcript-box">En attente…</span>
           </div>
         </div>

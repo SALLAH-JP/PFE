@@ -170,6 +170,14 @@ void readSerialCommand() {
         }
       }
 
+      // Changement de mode : "M:0" ou "M:1"
+      else if (buf[0] == 'M' && buf[1] == ':') {
+        lineFollowingMode = (buf[2] == '1');
+        Serial.print("MODE:");
+        Serial.println(lineFollowingMode ? "LINE" : "MANUAL");
+      }
+
+
       // Envoie station si changement
       sendStationIfChanged();
 

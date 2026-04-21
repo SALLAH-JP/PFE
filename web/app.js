@@ -1,35 +1,56 @@
-// ===================================================
-//  MARC Robot — app.js
-//  Parcours robotique avec sélection de station
-//  Commande vocale via MediaRecorder → serveur Whisper
-// ===================================================
-
 const STATIONS = {
+  base:   { cx: 290, cy: 190 },
   nao:    { cx: 52,  cy: 190 },
-  imp3d:  { cx: 183, cy: 46  },
+  vector: { cx: 183, cy: 46  },
   pepper: { cx: 397, cy: 46  },
-  robot3: { cx: 528, cy: 190 },
-  robot4: { cx: 397, cy: 334 },
-  robot5: { cx: 290, cy: 338 },
-  robot6: { cx: 183, cy: 334 },
+  imp3d:  { cx: 528, cy: 190 },
+  baxter: { cx: 397, cy: 334 },
+  bras:   { cx: 183, cy: 334 },
 };
 
-let currentStation = 'nao';
-let targetStation  = null;
+let currentStation  = 'base';
+let targetStation   = null;
+let guideModeActive = false;
 
-// ── Déplacer Nash sur le SVG ──
-function moveNash(stationId) {
-  const s = STATIONS[stationId];
-  if (!s) return;
-  document.getElementById('nash-dot').setAttribute('cx', s.cx);
-  document.getElementById('nash-dot').setAttribute('cy', s.cy);
-  document.getElementById('nash-glow').setAttribute('cx', s.cx);
-  document.getElementById('nash-glow').setAttribute('cy', s.cy);
-  document.getElementById('nash-text').setAttribute('x', s.cx);
-  document.getElementById('nash-text').setAttribute('y', s.cy + 4);
+// ── Mode guide ──
+async function toggleGuideMode() {
+  guideModeActive = !guideModeActive;
+  updateGuideButton();
+  try {
+    const res  = await fetch('/line_following', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ enabled: guideModeActive }),
+    });
+    const data = await res.json();
+    guideModeActive = data.line_following;
+    updateGuideButton();
+    addLog(`Mode guide : ${guideModeActive ? 'ON' : 'OFF'}`, guideModeActive ? 'cmd' : 'info');
+  } catch {
+    addLog('Erreur toggle mode guide', 'err');
+  }
 }
 
-// ── Mettre à jour les styles des stations ──
+function updateGuideButton() {
+  const btn   = document.getElementById('guideToggle');
+  const label = document.getElementById('guideLabel');
+  label.textContent = `Mode guide ${guideModeActive ? 'ON' : 'OFF'}`;
+  btn.classList.toggle('guide-on', guideModeActive);
+}
+
+// ── Déplacer MARC ──
+function moveMarc(stationId) {
+  const s = STATIONS[stationId];
+  if (!s) return;
+  document.getElementById('marc-dot').setAttribute('cx', s.cx);
+  document.getElementById('marc-dot').setAttribute('cy', s.cy);
+  document.getElementById('marc-glow').setAttribute('cx', s.cx);
+  document.getElementById('marc-glow').setAttribute('cy', s.cy);
+  document.getElementById('marc-text').setAttribute('x', s.cx);
+  document.getElementById('marc-text').setAttribute('y', s.cy + 4);
+}
+
+// ── Styles stations ──
 function updateStationStyles() {
   Object.keys(STATIONS).forEach(id => {
     const svgGroup = document.getElementById('st-' + id);
@@ -52,10 +73,10 @@ function updateStationStyles() {
   });
 }
 
-// ── Sélectionner une destination (clic carte/SVG) ──
+// ── Sélection destination ──
 function selectStation(id) {
   if (id === currentStation) {
-    addLog(`Nash est déjà à ${id}`, 'info');
+    addLog(`MARC est déjà à ${id}`, 'info');
     return;
   }
   targetStation = id;
@@ -64,7 +85,7 @@ function selectStation(id) {
   sendDestination(id);
 }
 
-// ── Envoyer destination au serveur ──
+// ── Envoi destination ──
 async function sendDestination(destination) {
   try {
     const res  = await fetch('/command', {
@@ -82,75 +103,68 @@ async function sendDestination(destination) {
   }
 }
 
-// ── Simulation locale (sans serveur) ──
+// ── Simulation locale ──
 function simulateMove(dest) {
-  addLog(`Nash se déplace vers ${dest.toUpperCase()}...`, 'info');
+  addLog(`MARC se déplace vers ${dest.toUpperCase()}...`, 'info');
   setTimeout(() => {
     currentStation = dest;
     targetStation  = null;
-    moveNash(dest);
+    moveMarc(dest);
     updateStationStyles();
-    addLog(`Nash est arrivé à ${dest.toUpperCase()}`, 'info');
+    addLog(`MARC est arrivé à ${dest.toUpperCase()}`, 'info');
     document.getElementById('aiReply').textContent = `Je suis arrivé à ${dest}.`;
   }, 1500);
 }
 
-// ── Appliquer l'état reçu du serveur ──
+// ── Appliquer état serveur ──
 function applyRobotState(state) {
   if (state.current) {
     currentStation = state.current;
-    moveNash(state.current);
+    moveMarc(state.current);
   }
   if (state.target !== undefined) targetStation = state.target;
+  if (state.line_following !== undefined) {
+    guideModeActive = state.line_following;
+    updateGuideButton();
+  }
   updateStationStyles();
 }
 
 // ═══════════════════════════════════════════
-//  PUSH-TO-TALK — MediaRecorder → /transcribe
+//  PUSH-TO-TALK
 // ═══════════════════════════════════════════
-let mediaRecorder  = null;
-let audioChunks    = [];
-let mediaStream    = null;
+let mediaRecorder = null;
+let audioChunks   = [];
+let mediaStream   = null;
 
 const micBtn    = document.getElementById('micBtn');
 const micStatus = document.getElementById('micStatus');
 
-// ── Démarrer l'enregistrement ──
 async function startRecording() {
   try {
     mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     audioChunks = [];
-
-    // Choisir le meilleur format supporté
     const mimeType = MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
       ? 'audio/ogg;codecs=opus'
       : MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : 'audio/webm';
-
     mediaRecorder = new MediaRecorder(mediaStream, { mimeType });
-
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data.size > 0) audioChunks.push(e.data);
-    };
-
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
     mediaRecorder.onstop = () => sendAudioToServer(mimeType);
-
-    mediaRecorder.start(); // chunk toutes les 100ms
+    mediaRecorder.start();
     micBtn.classList.add('recording');
     setMicStatus('🔴 En écoute…', 'listening');
     addLog('Enregistrement démarré', 'info');
-
   } catch (err) {
     addLog('Microphone refusé : ' + err.message, 'err');
     setMicStatus('Maintenir pour parler', '');
   }
 }
 
-// ── Arrêter l'enregistrement ──
 function stopRecording() {
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.requestData(); // force flush du dernier chunk
+    mediaRecorder.requestData();
     mediaRecorder.stop();
   }
   if (mediaStream) {
@@ -161,111 +175,60 @@ function stopRecording() {
   setMicStatus('Traitement…', 'processing');
 }
 
-// ── Envoyer l'audio au serveur ──
 async function sendAudioToServer(mimeType) {
-  if (audioChunks.length === 0) {
-    setMicStatus('Maintenir pour parler', '');
-    return;
-  }
-
+  if (audioChunks.length === 0) { setMicStatus('Maintenir pour parler', ''); return; }
   const blob     = new Blob(audioChunks, { type: mimeType });
   const formData = new FormData();
   formData.append('audio', blob, 'recording.webm');
-
-  addLog('Envoi audio au serveur...', 'info');
-
+  addLog('Envoi audio...', 'info');
   try {
-    const res  = await fetch('/transcribe', {
-      method: 'POST',
-      body:   formData,
-    });
+    const res  = await fetch('/transcribe', { method: 'POST', body: formData });
     const data = await res.json();
-
-    // Afficher la transcription
     if (data.transcript) {
       document.getElementById('userText').textContent = data.transcript;
       addLog(`Transcription : "${data.transcript}"`, 'info');
     }
-
-    // Afficher la réponse Nash
     if (data.ai_reply) {
       document.getElementById('aiReply').textContent = data.ai_reply;
-      addLog(`Nash : ${data.ai_reply.slice(0, 80)}`, 'info');
-    }
-
-    // Déplacer le robot si destination détectée
-    if (data.destination) {
-      addLog(`Destination détectée → ${data.destination.toUpperCase()}`, 'cmd');
+      addLog(`MARC : ${data.ai_reply.slice(0, 80)}`, 'info');
     }
     if (data.robot_state) applyRobotState(data.robot_state);
-
-  } catch (err) {
+  } catch {
     addLog('Erreur serveur — fallback Web Speech', 'err');
-    // Fallback : Web Speech API si serveur indisponible
     fallbackWebSpeech();
   }
-
   setMicStatus('Maintenir pour parler', '');
 }
 
-// ── Fallback Web Speech API (si serveur indisponible) ──
 function fallbackWebSpeech() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { addLog('Web Speech API non supportée', 'err'); return; }
-
   const rec = new SR();
   rec.continuous = false; rec.interimResults = false; rec.lang = 'fr-FR';
-
   rec.onresult = async (event) => {
     const transcript = event.results[0][0].transcript.trim();
     document.getElementById('userText').textContent = transcript;
     addLog(`[fallback] Voix : "${transcript}"`, 'info');
-
     try {
       const res  = await fetch('/send_text', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ user_text: transcript }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_text: transcript }),
       });
       const data = await res.json();
       if (data.ai_reply)    document.getElementById('aiReply').textContent = data.ai_reply;
-      if (data.destination) addLog(`Destination → ${data.destination}`, 'cmd');
       if (data.robot_state) applyRobotState(data.robot_state);
-    } catch {
-      document.getElementById('aiReply').textContent = "Commande non reconnue.";
-    }
+    } catch { document.getElementById('aiReply').textContent = "Commande non reconnue."; }
   };
-
   rec.onerror = (e) => addLog('Fallback erreur : ' + e.error, 'err');
   rec.start();
 }
 
-// ── Événements bouton micro ──
-micBtn.addEventListener('mousedown', (e) => {
-  e.preventDefault();
-  startRecording();
-});
+micBtn.addEventListener('mousedown',  (e) => { e.preventDefault(); startRecording(); });
+micBtn.addEventListener('mouseup',    (e) => { e.preventDefault(); stopRecording(); });
+micBtn.addEventListener('mouseleave', ()  => { if (mediaRecorder && mediaRecorder.state === 'recording') stopRecording(); });
+micBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startRecording(); }, { passive: false });
+micBtn.addEventListener('touchend',   (e) => { e.preventDefault(); stopRecording(); },  { passive: false });
 
-micBtn.addEventListener('mouseup', (e) => {
-  e.preventDefault();
-  stopRecording();
-});
-
-micBtn.addEventListener('mouseleave', () => {
-  if (mediaRecorder && mediaRecorder.state === 'recording') stopRecording();
-});
-
-micBtn.addEventListener('touchstart', (e) => {
-  e.preventDefault();
-  startRecording();
-}, { passive: false });
-
-micBtn.addEventListener('touchend', (e) => {
-  e.preventDefault();
-  stopRecording();
-}, { passive: false });
-
-// ── UTILS ──
 function setMicStatus(text, cls) {
   micStatus.textContent = text;
   micStatus.className   = 'mic-status' + (cls ? ' ' + cls : '');
@@ -285,7 +248,6 @@ document.getElementById('logClear').addEventListener('click', () => {
   document.getElementById('logEntries').innerHTML = '';
 });
 
-// ── SYNC ÉTAT INITIAL ──
 fetch('/status')
   .then(r => r.json())
   .then(d => {
@@ -294,6 +256,5 @@ fetch('/status')
   })
   .catch(() => addLog('Mode démo — serveur non joignable', 'err'));
 
-// ── INIT ──
-moveNash(currentStation);
+moveMarc(currentStation);
 updateStationStyles();

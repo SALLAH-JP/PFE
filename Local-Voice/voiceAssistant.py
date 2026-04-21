@@ -81,13 +81,18 @@ def listen_once() -> str | None:
 # ─────────────────────────────────────────────
 conversation_history: list[dict] = []
 
-def ask_ollama(user_text: str) -> dict | None:
+def ask_ollama(user_text: str, extra_context: str = "") -> dict | None:
     """
     Envoie le texte à Ollama et retourne le JSON parsé.
     Retourne None en cas d'erreur.
     """
+
+    system = SYSTEM_PROMPT
+    if extra_context:
+        system = SYSTEM_PROMPT + "\n\n---\n\n" + extra_context
+
     conversation_history.append({"role": "user", "content": user_text})
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history
+    messages = [{"role": "system", "content": system}] + conversation_history
 
     full_response = ""
     try:
@@ -120,14 +125,6 @@ def ask_ollama(user_text: str) -> dict | None:
         parsed = json.loads(clean)
         print(f"🤖  MARC JSON : {json.dumps(parsed, ensure_ascii=False)}")
         return parsed
-
-
-    except Exception as e:
-        print(f"❌  Erreur Ollama : {e}")
-        # Ajoute ces deux lignes :
-        if hasattr(e, 'response') and e.response is not None:
-            print(f"❌  Body : {e.response.text}")
-        return None
 
     except json.JSONDecodeError as e:
         print(f"❌  JSON invalide reçu d'Ollama : {e}\nRéponse brute : {full_response}")

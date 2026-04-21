@@ -79,4 +79,5 @@ int centerValue;
 // Reperage des stations
 int currentStation = 0;   // station détectée actuellement
 int lastSentStation = 0;  // dernière station envoyée au Pi
+bool lineFollowingMode = false;
 
