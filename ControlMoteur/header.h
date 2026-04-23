@@ -43,11 +43,11 @@ BNO08x imu;
 #define EQUILIBRE -4
 
 double inputA, outputA, setpointA = EQUILIBRE;
-double KpA = 26, KiA = 0.0, KdA = 0.5;
+double KpA = 21, KiA = 0.0, KdA = 0.9;
 PID pidA(&inputA, &outputA, &setpointA, KpA, KiA, KdA, REVERSE);
 
 double inputV, outputV, currentMoveCmd = 0;
-double KpV = 0.2, KiV = 0.0, KdV = 0;
+double KpV = 0.3, KiV = 0.0, KdV = 0.0;
 PID pidV(&inputV, &outputV, &currentMoveCmd, KpV, KiV, KdV, DIRECT);
 
 
@@ -79,5 +79,5 @@ int centerValue;
 // Reperage des stations
 int currentStation = 0;   // station détectée actuellement
 int lastSentStation = 0;  // dernière station envoyée au Pi
-bool lineFollowingMode = false;
+bool lineFollowingMode = true;
 

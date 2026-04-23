@@ -118,14 +118,12 @@ void lineTracking() {
   rightValue = digitalRead(RIGHT_SENSOR_PIN);
   centerValue = digitalRead(CENTER_SENSOR_PIN);
 
-  if ( leftValue == LOW && rightValue == LOW ) moveCmd = 20;
+  if ( centerValue == HIGH ) moveCmd = 20;
   else if ( leftValue == HIGH && rightValue == HIGH ) moveCmd = 0;
-  //else if ( abs(EQUILIBRE - inputA) < 2 ) {
-    else if ( leftValue == HIGH ) turnCmd = 75;
-    else if ( rightValue == HIGH ) turnCmd = -75;
-  //}
+  else if ( leftValue == HIGH ) turnCmd = 75;
+  else if ( rightValue == HIGH ) turnCmd = -75;
 
-  if ( centerValue == HIGH ) currentStation += 1;
+  if ( centerValue == HIGH && leftValue == HIGH && rightValue == HIGH ) currentStation += 1;
   currentStation = currentStation % 3;
 
 }
