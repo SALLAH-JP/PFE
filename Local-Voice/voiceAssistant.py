@@ -131,18 +131,30 @@ def ask_ollama(user_text: str, extra_context: str = "") -> dict | None:
         return {"type": "chat", "response": "Désolé, je n'ai pas pu traiter ça correctement."}
     except requests.exceptions.ConnectionError:
         print("❌  Ollama inaccessible")
-        return None
+        return {"type": "chat", "response": "Désolé, je n'ai pas pu traiter ça correctement."}
     except Exception as e:
         print(f"❌  Erreur Ollama : {e}")
-        return None
+        return {"type": "chat", "response": "Désolé, je n'ai pas pu traiter ça correctement."}
 
 
 # ─────────────────────────────────────────────
 #  TTS — gTTS + mpg123 or PIPER
 # ─────────────────────────────────────────────
-PIPER_EXE   = BASE_DIR / "piper" / "piper"          # ou "piper.exe" sur Windows
-PIPER_MODEL = BASE_DIR / "piper" / "fr_FR-siwis-medium.onnx"
+
+import edge_tts
+import asyncio
+
 def speak(text: str) -> None:
+    print(f"🔊  {text[:80]}{'…' if len(text) > 80 else ''}")
+    try:
+        asyncio.run(edge_tts.Communicate(text, voice="fr-FR-HenriNeural").save("/tmp/marc_tts.mp3"))
+        subprocess.run(["mpg123", "-q", "/tmp/marc_tts.mp3"])
+        os.unlink("/tmp/marc_tts.mp3")
+    except Exception as e:
+        print(f"⚠️  TTS erreur : {e}")
+
+
+def speak1(text: str) -> None:
     print(f"🔊  {text[:80]}{'…' if len(text) > 80 else ''}")
     try:
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
@@ -155,22 +167,62 @@ def speak(text: str) -> None:
 
 
 
+PIPER_EXE   = BASE_DIR / "piper" / "piper"
+PIPER_MODEL = BASE_DIR / "piper" / "fr_FR-siwis-low.onnx"
+PIPER_DATA  = BASE_DIR / "piper" / "espeak-ng-data"
+
+import wave
+import io
+import pyaudio
+
+CHUNK = 1024
+RATE  = 16000
+
 def speak2(text: str) -> None:
     print(f"🔊  {text[:80]}{'…' if len(text) > 80 else ''}")
     try:
-        piper = subprocess.Popen(
-            ["piper", "--model", PIPER_MODEL, "--output-raw"],
+        # 1. Génère le PCM avec piper
+        piper_proc = subprocess.Popen(
+            [
+                str(PIPER_EXE),
+                "--model",        str(PIPER_MODEL),
+                "--output-raw"
+            ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL
         )
-        aplay = subprocess.Popen(
-            ["aplay", "-r", "22050", "-f", "S16_LE", "-c", "1", "-q"],
-            stdin=piper.stdout
+        tts_pcm, _ = piper_proc.communicate(input=text.encode())
+
+        # 2. Convertit PCM raw → WAV via sox
+        sox_proc = subprocess.Popen(
+            ["sox", "-t", "raw", "-r", "16000", "-c", "1", "-b", "16",
+             "-e", "signed-integer", "-", "-t", "wav", "-"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL
         )
-        piper.stdin.write(text.encode())
-        piper.stdin.close()
-        aplay.wait()
+        wav_bytes, _ = sox_proc.communicate(input=tts_pcm)
+
+        # 3. Lecture via pyaudio
+        wf     = wave.open(io.BytesIO(wav_bytes), "rb")
+        pa     = pyaudio.PyAudio()
+        stream = pa.open(
+            format=pa.get_format_from_width(wf.getsampwidth()),
+            channels=wf.getnchannels(),
+            rate=wf.getframerate(),
+            output=True
+        )
+        data = wf.readframes(CHUNK)
+        while data:
+            stream.write(data)
+            data = wf.readframes(CHUNK)
+
+        stream.stop_stream()
+        stream.close()
+        pa.terminate()
+        wf.close()
+
     except Exception as e:
         print(f"⚠️  TTS erreur : {e}")
 

@@ -43,11 +43,11 @@ BNO08x imu;
 #define EQUILIBRE -4
 
 double inputA, outputA, setpointA = EQUILIBRE;
-double KpA = 26, KiA = 0.0, KdA = 0.5;
+double KpA = 18, KiA = 0.0, KdA = 0.7;
 PID pidA(&inputA, &outputA, &setpointA, KpA, KiA, KdA, REVERSE);
 
 double inputV, outputV, currentMoveCmd = 0;
-double KpV = 0.2, KiV = 0.0, KdV = 0;
+double KpV = 0.35, KiV = 0.0, KdV = 0;
 PID pidV(&inputV, &outputV, &currentMoveCmd, KpV, KiV, KdV, DIRECT);
 
 

@@ -85,8 +85,8 @@ void loop() {
   }
 
   // filtrage passe-bas des commandes
-  currentMoveCmd = moveCmd; //lowPassFilter(moveCmd, currentMoveCmd, 0.005 );
-  currentTurnCmd = turnCmd; //lowPassFilter(turnCmd, currentTurnCmd, 0.005 );
+  currentMoveCmd = moveCmd; //lowPassFilter(moveCmd, currentMoveCmd, 0.8);
+  currentTurnCmd = turnCmd; //lowPassFilter(turnCmd, currentTurnCmd, 0.8);
 
   inputV = measureSpeed();
 
@@ -106,13 +106,13 @@ void loop() {
 
   }
 
-
+  
 
   //Serial.print(KpA); Serial.print(" => "); Serial.print(KiA); Serial.print(" => "); Serial.println(KdA);
   //Serial.print(KpV); Serial.print(" => "); Serial.print(KiV); Serial.print(" => "); Serial.println(KdV);
   //Serial.println();
-  //Serial.print(currentMoveCmd); Serial.print(" => "); Serial.println(currentTurnCmd);
-  setMotors(outputA, currentTurnCmd);
+  Serial.print(currentMoveCmd); Serial.print(" => "); Serial.println(currentTurnCmd);
+  setMotors(currentMoveCmd, currentTurnCmd);
   //temps();
 
 }
