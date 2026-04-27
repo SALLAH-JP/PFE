@@ -63,16 +63,18 @@ void remoteControl() {
 
 
 void setMotors(double cmd, int turn) {
+  if (abs(cmd) < 50 && turn == 0) {
+    motorL->stopMove();
+    motorR->stopMove();
+    return;  // on sort immédiatement, setSpeedInHz n'est jamais appelé
+  }
+
   double left  = cmd - turn;
   double right = cmd + turn;
 
-  // Vitesse minimale pour éviter le 0
-  int minSpeed = 10;
-  int speedL = max((int)abs(left), minSpeed);
-  int speedR = max((int)abs(right), minSpeed);
-
-  motorL->setSpeedInHz(speedL);
-  motorR->setSpeedInHz(speedR);
+  // Ici abs(cmd) >= 50 donc left/right ne peuvent pas être 0
+  motorL->setSpeedInHz((int)abs(left));
+  motorR->setSpeedInHz((int)abs(right));
 
   if (left  < 0) motorL->runBackward(); else motorL->runForward();
   if (right <= 0) motorR->runForward();  else motorR->runBackward();
@@ -114,18 +116,43 @@ float measureSpeed() {
 
 
 void lineTracking() {
-  leftValue = digitalRead(LEFT_SENSOR_PIN);
-  rightValue = digitalRead(RIGHT_SENSOR_PIN);
+  leftValue   = digitalRead(LEFT_SENSOR_PIN);
+  rightValue  = digitalRead(RIGHT_SENSOR_PIN);
   centerValue = digitalRead(CENTER_SENSOR_PIN);
 
-  if ( centerValue == HIGH ) moveCmd = 20;
-  else if ( leftValue == HIGH && rightValue == HIGH ) moveCmd = 0;
-  else if ( leftValue == HIGH ) turnCmd = 75;
-  else if ( rightValue == HIGH ) turnCmd = -75;
+  if (centerValue == HIGH) {
+    // Ligne centrale : avancer
+    //moveCmd = 60;
+    turnCmd = 0;
+  }
+  else if (leftValue == HIGH && rightValue == HIGH) {
+    moveCmd = 0;
+    turnCmd = 0;
+  }
+  else if (leftValue == HIGH) {
+    // Trop à droite : reculer + tourner pour se recadrer
+    moveCmd = 0;
+    turnCmd = 75;
+  }
+  else if (rightValue == HIGH) {
+    // Trop à gauche : reculer + tourner pour se recadrer
+    moveCmd = 0;
+    turnCmd = -75;
+  }
+  else {
+    // Rien : stop
+    //moveCmd = 60;
+    turnCmd = 0;
+  }
 
-  if ( centerValue == HIGH && leftValue == HIGH && rightValue == HIGH ) currentStation += 1;
-  currentStation = currentStation % 3;
+  // Détection station : front montant uniquement
+  static int prevStation = LOW;
+  int allHigh = (leftValue == HIGH && centerValue == HIGH && rightValue == HIGH);
 
+  if ( allHigh && prevStation == LOW ) {
+    currentStation = (currentStation + 1) % 7;
+  }
+  prevStation = allHigh;
 }
 
 unsigned long lastTime = 0;

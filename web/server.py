@@ -250,7 +250,7 @@ def execute_action(payload: dict) -> dict:
         num      = STATION_NUMBERS.get(dest_id)
         if num is not None:
             destination_cible     = num
-            current_move          = 20
+            current_move          = 150
             current_turn          = 0
             send_mode(True)
         robot_state["target"] = dest_id
@@ -263,7 +263,7 @@ def execute_action(payload: dict) -> dict:
         send_mode(True)
         if num is not None:
             destination_cible     = num
-            current_move          = 60
+            current_move          = 150
             current_turn          = 0
         robot_state["target"] = dest_id
         result["destination"] = dest_id
@@ -278,12 +278,12 @@ def execute_action(payload: dict) -> dict:
 
     elif action == "moveForward":
         duration = payload.get("temps")
-        send_serial_timed(60, 0, duration)
+        send_serial_timed(150, 0, duration)
         result["duration"] = duration
 
     elif action == "moveBackward":
         duration = payload.get("temps")
-        send_serial_timed(-60, 0, duration)
+        send_serial_timed(-150, 0, duration)
         result["duration"] = duration
 
     elif action == "turnLeft":

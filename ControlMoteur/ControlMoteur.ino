@@ -76,7 +76,7 @@ void loop() {
   turnCmd = 0;
 
   readSerialCommand();
-  sendStationIfChanged();
+
 
   if (lineFollowingMode) {
     lineTracking();        // suit la ligne, ignore la télécommande
@@ -111,7 +111,7 @@ void loop() {
   //Serial.print(KpA); Serial.print(" => "); Serial.print(KiA); Serial.print(" => "); Serial.println(KdA);
   //Serial.print(KpV); Serial.print(" => "); Serial.print(KiV); Serial.print(" => "); Serial.println(KdV);
   //Serial.println();
-  Serial.print(currentMoveCmd); Serial.print(" => "); Serial.println(currentTurnCmd);
+  //Serial.print(currentMoveCmd); Serial.print(" => "); Serial.println(currentTurnCmd);
   setMotors(currentMoveCmd, currentTurnCmd);
   //temps();
 
