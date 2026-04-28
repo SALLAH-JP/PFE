@@ -13,6 +13,7 @@ import threading
 import json
 
 from flask import Flask, request, jsonify, send_from_directory
+from typer import style
 
 # ── Imports voiceAssistant (fonctions partagées) ──
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -22,8 +23,8 @@ from voiceAssistant import speak, ask_ollama, recognizer
 
 # ── Matrix LED (optionnel) ──
 try:
-    from gif_viewer import gifViewer
     from rgbmatrix import RGBMatrix, RGBMatrixOptions
+    from eye_manager import EyeManager
     MATRIX_AVAILABLE = True
 except ImportError:
     print("⚠️  rgbmatrix non disponible (mode PC)")
@@ -54,7 +55,6 @@ except Exception as e:
 #  CONFIGURATION
 # ─────────────────────────────────────────────
 GIF_DIR  = os.path.join(ROOT, "matrixLed")
-GIF_IDLE = os.path.join(GIF_DIR, "style2", "blink.gif")
 
 
 # ─────────────────────────────────────────────
@@ -72,6 +72,7 @@ current_turn      = 0
 station_actuelle  = -1
 destination_cible = None
 line_following    = False
+eyes = None
 
 # Numéro de station physique → id web
 STATION_NUMBERS = {
@@ -120,20 +121,16 @@ if MATRIX_AVAILABLE:
     options.disable_hardware_pulsing = True
     options.hardware_mapping = "regular"
     matrix = RGBMatrix(options=options)
+
+    eyes = EyeManager(matrix, GIF_DIR, style=2)
+    eyes.start()
     print("✅  Matrix LED initialisée")
 
-def show_gif(gif_path: str) -> None:
-    if not MATRIX_AVAILABLE:
-        return
-    if not os.path.exists(gif_path):
-        print(f"⚠️  GIF introuvable : {gif_path}")
-        return
-    gifViewer(gif_path, matrix)
 
-def clear_matrix() -> None:
+def clear_matrix():
     if MATRIX_AVAILABLE and matrix:
         matrix.Clear()
-        print("🖥️  Matrix effacée")
+        if eyes: eyes.stop()
 
 
 # ─────────────────────────────────────────────
@@ -182,9 +179,9 @@ def check_destination():
             robot_state["current"] = dest_id
         robot_state["target"] = None
         destination_cible     = None
-        send_mode(False)  # repasse en mode manuel
         print(f"✅  Arrivé station {station_actuelle} ({dest_id})")
         tts("Je suis arrivé à destination.")
+        if eyes: eyes.play("love")
 
 
 def send_serial_timed(move: int, turn: int, duration: float | None):
@@ -214,6 +211,7 @@ def send_mode(enabled: bool):
 TMP_DIR = tempfile.gettempdir()
 
 def tts(text: str) -> None:
+    if eyes: eyes.play("neutral")
     threading.Thread(target=speak, args=(text,), daemon=True).start()
 
 
@@ -244,7 +242,11 @@ def execute_action(payload: dict) -> dict:
 
     print(f"⚙️  Exécution : {json.dumps(payload, ensure_ascii=False)}")
 
+    gif_path = os.path.join(GIF_DIR, f"style{style}", "blink.gif")
+    show_gif(gif_path)
+
     if action == "moveTo":
+        if eyes: eyes.play("suspicious")
         dest_raw = payload.get("destination", "")
         dest_id  = DESTINATION_MAP.get(dest_raw, dest_raw.lower())
         num      = STATION_NUMBERS.get(dest_id)
@@ -252,7 +254,6 @@ def execute_action(payload: dict) -> dict:
             destination_cible     = num
             current_move          = 150
             current_turn          = 0
-            send_mode(True)
         robot_state["target"] = dest_id
         result["destination"] = dest_id
 
@@ -269,6 +270,7 @@ def execute_action(payload: dict) -> dict:
         result["destination"] = dest_id
 
     elif action == "disableLineFollowing":
+        if eyes: eyes.set_idle("neutral")
         send_mode(False)
         current_move      = 0
         current_turn      = 0
@@ -302,14 +304,12 @@ def execute_action(payload: dict) -> dict:
     elif action == "changeEyes":
         style    = payload.get("style", 1)
         robot_state["eyes"] = style
-        gif_path = os.path.join(GIF_DIR, f"style{style}", "blink.gif")
-        show_gif(gif_path)
+        if eyes: eyes.set_style(style)
         result["style"] = style
 
     elif action == "shutdown":
         robot_state["mode"] = "idle"
         clear_matrix()
-        show_gif(GIF_IDLE)
         result["mode"] = "idle"
 
     else:
@@ -505,6 +505,8 @@ def transcribe():
         except: pass
 
     if not transcript:
+        gif_path = os.path.join(GIF_DIR, f"style{style}", "cry.gif")
+        show_gif(gif_path)
         tts("Je n'ai pas compris.")
         return jsonify({
             "transcript":  "",
@@ -537,7 +539,6 @@ def transcribe():
 if __name__ == "__main__":
     print("🚀  MARC Robot server démarré sur https://11.255.255.119:5000")
     threading.Thread(target=serial_worker, daemon=True).start()
-    show_gif(GIF_IDLE)
     WEB_DIR = os.path.dirname(os.path.abspath(__file__))
     app.run(host="0.0.0.0", port=5000, debug=False, ssl_context=(
         os.path.join(WEB_DIR, 'cert.pem'),

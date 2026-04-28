@@ -13,7 +13,7 @@ Actions disponibles et leurs paramètres optionnels :
 - moveBackward → ajouter optionnellement "temps": <secondes>
 - turnLeft     → ajouter optionnellement "temps": <secondes>
 - turnRight    → ajouter optionnellement "temps": <secondes>
-- changeEyes   → ajouter optionnellement "style": 1 | 2
+- changeEyes   → ajouter optionnellement "style": 1 | 2 | 3
 - turn         → aucun paramètre supplémentaire
 - shutdown     → aucun paramètre supplémentaire
 - enableLineFollowing → aucun paramètre supplémentaire

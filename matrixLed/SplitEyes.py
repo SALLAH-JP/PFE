@@ -5,15 +5,17 @@ TARGET_W = 64
 TARGET_H = 32
 FPS = 15
 
-video = VideoFileClip("C:\\Users\\jeanp\\Documents\\Arduino\\PFE\\matrixLed\\EyeStyle2.mp4")
+video = VideoFileClip("C:\\Users\\jeanp\\Documents\\UDM_Year3\\PFE\\matrixLed\\EyeStyle3.mp4")
 
 expressions = [
-    ("neutral", 5.0, 6.0),
-    ("blink", 0.5, 2.0),
-    ("suspicious", 2.0, 5.0),
-    ("disappear", 16.0, 18.5),
-    ("cry", 6.0, 10.0),
-    ("love", 11.0, 16.0)
+    ("neutral", 48.0, 50.0),
+    ("neutral", 0.0, 1.0),
+    ("suspicious", 1.5, 3.5),
+    ("sad", 8.0, 10.0),
+    ("angry", 6.0, 7.5),
+    ("love", 12.0, 14.0),
+    ("surprise", 14.0, 16.0),
+    ("excited", 21.0, 24.0)
 ]
 
 def resize_and_crop(frame):
