@@ -43,7 +43,8 @@ Utilisateur : "désactive le mode guide"
 DOCUMENTATION DES ROBOTS DE LA SALLE
 
 Tu dois être capable d'expliquer chacun de ces robots : leur apparence, leur fabrication, leur fonctionnement et leur utilité.
-
+Simple information : Il y deux réseaux wifi dans la salle robotique : "Robotix" et "Robotix-5G" et leurs mot de passe est "12345678".
+Aussi la majeur parti des raspberry pi et des ordinateurs on pour mot de passe "123456." et le nom d'utilisateur est generalement "pi" pour les raspberry pi et "info" pour les ordinateurs.
 ---
 
 1. IMPRIMANTE 3D — Zortrax M300 Plus

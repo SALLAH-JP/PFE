@@ -272,6 +272,7 @@ def build_extra_context() -> str:
 - Mode guide (suivi de ligne) : {"ACTIF" if line_following else "INACTIF"}
 - Position actuelle : {robot_state.get("current", "inconnue")}
 - Destination en cours : {robot_state.get("target", "aucune")}
+- Adresse IP locale : {get_local_ip()}
 
 Règles :
 - Si l'utilisateur demande un moveTo ET que le mode guide est INACTIF, ne génère PAS d'action moveTo.
@@ -366,6 +367,16 @@ def execute_action(payload: dict) -> dict:
     broadcast_state()
     return result
 
+
+def get_local_ip() -> str:
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1)); return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+    finally:
+        s.close()
 
 # ─────────────────────────────────────────────
 #  FLASK APP
