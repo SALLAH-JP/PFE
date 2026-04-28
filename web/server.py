@@ -291,9 +291,6 @@ def execute_action(payload: dict) -> dict:
 
     print(f"⚙️  Exécution : {json.dumps(payload, ensure_ascii=False)}")
 
-    gif_path = os.path.join(GIF_DIR, f"style{style}", "blink.gif")
-    show_gif(gif_path)
-
     if action == "moveTo":
         if eyes: eyes.play("suspicious")
         dest_raw = payload.get("destination", "")
