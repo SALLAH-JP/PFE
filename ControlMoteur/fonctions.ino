@@ -150,7 +150,7 @@ void lineTracking() {
   int allHigh = (leftValue == HIGH && centerValue == HIGH && rightValue == HIGH);
 
   if ( allHigh && prevStation == LOW ) {
-    currentStation = (currentStation + 1) % 7;
+    currentStation = (currentStation + 6) % 7;
   }
   prevStation = allHigh;
 }

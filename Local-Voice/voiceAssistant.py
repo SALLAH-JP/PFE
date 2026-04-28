@@ -81,7 +81,7 @@ def listen_once() -> str | None:
 # ─────────────────────────────────────────────
 conversation_history: list[dict] = []
 
-def ask_ollama(user_text: str, extra_context: str = "") -> dict | None:
+def ask_ollama2(user_text: str, extra_context: str = "") -> dict | None:
     """
     Envoie le texte à Ollama et retourne le JSON parsé.
     Retourne None en cas d'erreur.
@@ -135,6 +135,80 @@ def ask_ollama(user_text: str, extra_context: str = "") -> dict | None:
     except Exception as e:
         print(f"❌  Erreur Ollama : {e}")
         return {"type": "chat", "response": "Désolé, je n'ai pas pu traiter ça correctement."}
+
+
+
+def ask_ollama(user_text: str, extra_context: str = "") -> dict | None:
+    """
+    Envoie le texte à Ollama et retourne le JSON parsé.
+    Retourne None en cas d'erreur.
+    """
+
+    system = SYSTEM_PROMPT
+    if extra_context:
+        system = SYSTEM_PROMPT + "\n\n---\n\n" + extra_context
+
+    conversation_history.append({"role": "user", "content": user_text})
+    messages = [{"role": "system", "content": system}] + conversation_history
+
+    MAX_RETRIES = 3
+    full_response = ""
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        full_response = ""
+        try:
+            with requests.post(
+                OLLAMA_URL,
+                json={"model": OLLAMA_MODEL, "messages": messages, "keep_alive": -1, "stream": True},
+                stream=True,
+                timeout=60
+            ) as resp:
+                # 5xx = erreur serveur transitoire → retry avec backoff
+                if 500 <= resp.status_code < 600:
+                    if attempt < MAX_RETRIES:
+                        wait = 1.5 ** attempt
+                        print(f"⚠️  Ollama {resp.status_code} (tentative {attempt}/{MAX_RETRIES}) → retry dans {wait:.1f}s")
+                        time.sleep(wait)
+                        continue
+                    print(f"❌  Ollama {resp.status_code} après {MAX_RETRIES} tentatives")
+                    return {"type": "chat", "response": "Désolé, mon cerveau est temporairement indisponible. Réessayez dans un instant."}
+
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if not line:
+                        continue
+                    chunk = json.loads(line.decode("utf-8"))
+                    token = chunk.get("message", {}).get("content", "")
+                    full_response += token
+                    if chunk.get("done"):
+                        break
+
+            conversation_history.append({"role": "assistant", "content": full_response})
+
+            # Nettoyage des balises markdown si le modèle en ajoute quand même
+            clean = full_response.strip()
+            if clean.startswith("```"):
+                clean = clean.split("```")[1]
+                if clean.startswith("json"):
+                    clean = clean[4:]
+            clean = clean.strip()
+
+            parsed = json.loads(clean)
+            print(f"🤖  MARC JSON : {json.dumps(parsed, ensure_ascii=False)}")
+            return parsed
+
+        except json.JSONDecodeError as e:
+            print(f"❌  JSON invalide reçu d'Ollama : {e}\nRéponse brute : {full_response}")
+            return {"type": "chat", "response": "Désolé, je n'ai pas pu traiter ça correctement."}
+        except requests.exceptions.ConnectionError:
+            print("❌  Ollama inaccessible")
+            return {"type": "chat", "response": "Désolé, je n'ai pas pu traiter ça correctement."}
+        except Exception as e:
+            print(f"❌  Erreur Ollama : {e}")
+            return {"type": "chat", "response": "Désolé, je n'ai pas pu traiter ça correctement."}
+
+    return {"type": "chat", "response": "Désolé, je n'ai pas pu traiter ça correctement."}
+
 
 
 # ─────────────────────────────────────────────
