@@ -11,9 +11,9 @@ import time
 import tempfile
 import threading
 import json
+import queue
 
-from flask import Flask, request, jsonify, send_from_directory
-from typer import style
+from flask import Flask, request, jsonify, send_from_directory, Response
 
 # ── Imports voiceAssistant (fonctions partagées) ──
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -109,6 +109,50 @@ def full_state() -> dict:
 
 
 # ─────────────────────────────────────────────
+#  SSE — Server-Sent Events (temps réel vers le navigateur)
+# ─────────────────────────────────────────────
+# Chaque navigateur connecté possède sa propre file. Quand on appelle
+# broadcast(...), l'événement est posté dans toutes les files. Le générateur
+# attaché à /events vide la file et l'écrit dans le flux HTTP du client.
+sse_clients: list[queue.Queue] = []
+sse_lock = threading.Lock()
+
+
+def _sse_format(event: str, data: dict) -> str:
+    """Formate un message SSE conforme au protocole."""
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def broadcast(event: str, data: dict) -> None:
+    """Envoie un événement à tous les navigateurs connectés."""
+    msg = _sse_format(event, data)
+    with sse_lock:
+        dead = []
+        for q in sse_clients:
+            try:
+                q.put_nowait(msg)
+            except queue.Full:
+                dead.append(q)
+        for q in dead:
+            sse_clients.remove(q)
+
+
+def broadcast_state() -> None:
+    """Pousse l'état complet du robot à tous les clients."""
+    broadcast("state", full_state())
+
+
+def broadcast_speech(text: str) -> None:
+    """Pousse une phrase prononcée par MARC à tous les clients."""
+    broadcast("speech", {"text": text})
+
+
+def broadcast_log(message: str, level: str = "info") -> None:
+    """Pousse une entrée de journal à tous les clients."""
+    broadcast("log", {"message": message, "level": level})
+
+
+# ─────────────────────────────────────────────
 #  MATRIX LED
 # ─────────────────────────────────────────────
 matrix = None
@@ -180,6 +224,8 @@ def check_destination():
         robot_state["target"] = None
         destination_cible     = None
         print(f"✅  Arrivé station {station_actuelle} ({dest_id})")
+        broadcast_state()
+        broadcast_log(f"Arrivé à {dest_id}", "info")
         tts("Je suis arrivé à destination.")
         if eyes: eyes.play("love")
 
@@ -206,12 +252,15 @@ def send_mode(enabled: bool):
         except Exception as e:
             print(f"❌  Erreur envoi mode : {e}")
     print(f"🚦 Mode ligne : {'ON' if enabled else 'OFF'}")
+    broadcast_state()
+    broadcast_log(f"Mode guide : {'ON' if enabled else 'OFF'}", "cmd")
 
 
 TMP_DIR = tempfile.gettempdir()
 
 def tts(text: str) -> None:
     if eyes: eyes.play("neutral")
+    broadcast_speech(text)
     threading.Thread(target=speak, args=(text,), daemon=True).start()
 
 
@@ -317,6 +366,7 @@ def execute_action(payload: dict) -> dict:
         result["error"] = f"Action inconnue : {action}"
         print(f"⚠️  Action inconnue : {action}")
 
+    broadcast_state()
     return result
 
 
@@ -340,6 +390,51 @@ def static_files(filename):
 @app.route("/status")
 def status():
     return jsonify({"robot_state": full_state()})
+
+
+# ─────────────────────────────────────────────
+#  ROUTE : Flux d'événements temps réel (SSE)
+# ─────────────────────────────────────────────
+@app.route("/events")
+def events():
+    """
+    Le navigateur ouvre EventSource('/events') et reste connecté.
+    À chaque broadcast(), tous les clients reçoivent l'événement.
+    Le générateur envoie aussi un ping toutes les 15 s pour
+    empêcher les proxies de couper la connexion.
+    """
+    def stream():
+        q: queue.Queue = queue.Queue(maxsize=50)
+        with sse_lock:
+            sse_clients.append(q)
+
+        # Envoi immédiat de l'état courant à la connexion
+        yield _sse_format("state", full_state())
+
+        try:
+            while True:
+                try:
+                    msg = q.get(timeout=15)
+                    yield msg
+                except queue.Empty:
+                    # Keep-alive (commentaire SSE, ignoré côté client)
+                    yield ": ping\n\n"
+        except GeneratorExit:
+            pass
+        finally:
+            with sse_lock:
+                if q in sse_clients:
+                    sse_clients.remove(q)
+
+    return Response(
+        stream(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # désactive le buffering nginx si présent
+            "Connection": "keep-alive",
+        },
+    )
 
 
 # ─────────────────────────────────────────────
@@ -419,6 +514,7 @@ def toggle_line_following():
         current_turn      = 0
         destination_cible = None
         robot_state["target"] = None
+        broadcast_state()  # target a changé après send_mode
 
     return jsonify({"robot_state": full_state()})
 
@@ -540,7 +636,7 @@ if __name__ == "__main__":
     print("🚀  MARC Robot server démarré sur https://11.255.255.119:5000")
     threading.Thread(target=serial_worker, daemon=True).start()
     WEB_DIR = os.path.dirname(os.path.abspath(__file__))
-    app.run(host="0.0.0.0", port=5000, debug=False, ssl_context=(
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True, ssl_context=(
         os.path.join(WEB_DIR, 'cert.pem'),
         os.path.join(WEB_DIR, 'key.pem')
     ))

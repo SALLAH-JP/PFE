@@ -14,18 +14,17 @@ let guideModeActive = false;
 
 // ── Mode guide ──
 async function toggleGuideMode() {
-  guideModeActive = !guideModeActive;
-  updateGuideButton();
+  // L'UI ne change PAS tout de suite — on attend la confirmation du serveur
+  // via SSE. Évite les états incohérents si le serveur refuse ou tarde.
+  const requested = !guideModeActive;
   try {
-    const res  = await fetch('/line_following', {
+    await fetch('/line_following', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ enabled: guideModeActive }),
+      body:    JSON.stringify({ enabled: requested }),
     });
-    const data = await res.json();
-    guideModeActive = data.line_following;
-    updateGuideButton();
-    addLog(`Mode guide : ${guideModeActive ? 'ON' : 'OFF'}`, guideModeActive ? 'cmd' : 'info');
+    // applyRobotState() sera appelé par l'événement SSE 'state'
+    // dès que send_mode() aura terminé côté serveur.
   } catch {
     addLog('Erreur toggle mode guide', 'err');
   }
@@ -248,13 +247,75 @@ document.getElementById('logClear').addEventListener('click', () => {
   document.getElementById('logEntries').innerHTML = '';
 });
 
-fetch('/status')
-  .then(r => r.json())
-  .then(d => {
-    if (d.robot_state) applyRobotState(d.robot_state);
-    addLog('Connecté au serveur', 'info');
-  })
-  .catch(() => addLog('Mode démo — serveur non joignable', 'err'));
+// ═══════════════════════════════════════════
+//  CONNEXION TEMPS RÉEL (Server-Sent Events)
+// ═══════════════════════════════════════════
+//  Le serveur pousse l'état au navigateur dès qu'il change
+//  (arrivée du robot, mode guide, parole de MARC, etc.).
+//  Plus besoin de recharger la page.
 
+let eventSource    = null;
+let sseConnected   = false;
+
+function connectSSE() {
+  if (eventSource) eventSource.close();
+  eventSource = new EventSource('/events');
+
+  eventSource.addEventListener('open', () => {
+    if (!sseConnected) {
+      sseConnected = true;
+      addLog('Connexion temps réel établie', 'info');
+      setStatusDot(true);
+    }
+  });
+
+  // État complet du robot (position, cible, mode guide…)
+  eventSource.addEventListener('state', (e) => {
+    try { applyRobotState(JSON.parse(e.data)); } catch {}
+  });
+
+  // MARC vient de prononcer une phrase
+  eventSource.addEventListener('speech', (e) => {
+    try {
+      const { text } = JSON.parse(e.data);
+      if (text) {
+        document.getElementById('aiReply').textContent = text;
+        addLog(`MARC : ${text.slice(0, 80)}`, 'info');
+      }
+    } catch {}
+  });
+
+  // Entrée de journal poussée par le serveur
+  eventSource.addEventListener('log', (e) => {
+    try {
+      const { message, level } = JSON.parse(e.data);
+      addLog(message, level || 'info');
+    } catch {}
+  });
+
+  // Reconnexion automatique gérée par le navigateur
+  eventSource.addEventListener('error', () => {
+    if (sseConnected) {
+      sseConnected = false;
+      addLog('Connexion temps réel perdue — reconnexion…', 'err');
+      setStatusDot(false);
+    }
+  });
+}
+
+function setStatusDot(online) {
+  const dot   = document.querySelector('.status-dot');
+  const label = document.querySelector('.status-label');
+  if (!dot || !label) return;
+  if (online) {
+    dot.style.background = 'var(--success)';
+    label.textContent    = 'TEMPS RÉEL';
+  } else {
+    dot.style.background = 'var(--danger)';
+    label.textContent    = 'HORS LIGNE';
+  }
+}
+
+connectSSE();
 moveMarc(currentStation);
 updateStationStyles();
