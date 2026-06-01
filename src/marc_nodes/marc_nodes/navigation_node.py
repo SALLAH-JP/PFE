@@ -47,8 +47,8 @@ KNOWN_TARGETS = [0, 1, 2, 3, 4, 5, 6]
 STOP_DISTANCE_M = 0.75
 SCAN_TIMEOUT_S = 40
 ANGLE_OFFSET = -5.5
-TURN_SPEED = 45
-FORWARD_SPEED = 80
+TURN_SPEED = 300
+FORWARD_SPEED = 600
 
 # ── Paramètres go-to-goal (repris de navigation_goto.py) ──
 GOAL_TOLERANCE_M = 0.25

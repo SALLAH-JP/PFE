@@ -26,9 +26,12 @@ LANDMARKS_MAP = {
     0:  (-2.07,  0.00,  False),
     1:  (-2.08,  1.07,  False),
     2:  ( 2.17,  1.05,  False),
-    3:  (-0.66,  2.45,  False),
+    3:  (-0.66,  2.45,  True),
     4:  ( 2.17, -0.33,  False),
     5:  ( 0.96, -3.39,  False),
+    6:  ( -0.50, 2.55,  True),
+    7:  ( -0.66, 2.75,  True),
+    8:  ( -0.83, 2.55,  True),
 
     # ── Obstacles (meubles, machines) — à compléter selon la salle ──
     # 50: ( 1.20,  0.50,  True),    # Ex: table à côté de NAO
