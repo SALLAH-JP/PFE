@@ -33,8 +33,7 @@ from std_msgs.msg import String
 #       ├── src/marc_nodes/marc_nodes/voice_node.py   <- CE FICHIER
 #       └── assistantVocale/voiceAssistant.py
 # ─────────────────────────────────────────────
-THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.abspath(os.path.join(THIS_DIR, "..", "..", ".."))
+ROOT = "/home/pi/MARC"
 sys.path.append(os.path.join(ROOT, "assistantVocale"))
 
 from voiceAssistant import (   # noqa: E402

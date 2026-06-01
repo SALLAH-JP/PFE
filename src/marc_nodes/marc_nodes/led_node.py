@@ -35,8 +35,7 @@ from std_msgs.msg import String
 #       ├── src/marc_nodes/marc_nodes/led_node.py   <- CE FICHIER
 #       └── matrixLed/eye_manager.py + style1/ style2/ ...
 # ─────────────────────────────────────────────
-THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.abspath(os.path.join(THIS_DIR, "..", "..", ".."))
+ROOT = "/home/pi/MARC"
 GIF_DIR = os.path.join(ROOT, "matrixLed")
 sys.path.append(GIF_DIR)
 

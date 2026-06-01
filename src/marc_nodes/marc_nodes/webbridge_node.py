@@ -59,9 +59,9 @@ from flask import Flask, request, jsonify, send_from_directory, Response
 #       ├── matrixLed/eye_manager.py
 #       └── web/ (index.html, app.js, style.css, cert.pem, key.pem)
 # ─────────────────────────────────────────────
-THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 # remonte de src/marc_nodes/marc_nodes/ -> racine MARC/
-ROOT = os.path.abspath(os.path.join(THIS_DIR, "..", "..", ".."))
+
+ROOT = "/home/pi/MARC"
 WEB_DIR = os.path.join(ROOT, "web")
 GIF_DIR = os.path.join(ROOT, "matrixLed")
 

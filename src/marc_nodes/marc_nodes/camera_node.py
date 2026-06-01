@@ -32,21 +32,15 @@ from flask import Flask, Response, jsonify
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
+from picamera2 import Picamera2
 
-try:
-    from picamera2 import Picamera2
-    PICAM_AVAILABLE = True
-except ImportError:
-    print("⚠️  picamera2 non disponible (mode PC) — camera_node tournera à vide")
-    PICAM_AVAILABLE = False
 
 # ── CONFIG (reprise de camera_service.py) ──
 MARKER_SIZE_M = 0.077
 DISTANCE_CORRECTION = 0.738
 RESOLUTION = (640, 480)
 
-THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.abspath(os.path.join(THIS_DIR, "..", "..", ".."))
+ROOT = "/home/pi/MARC"
 WEB_DIR = os.path.join(ROOT, "web")
 CALIB_FILE = os.path.join(ROOT, "vision", "camera_calibration.npz")
 
@@ -94,19 +88,18 @@ def camera_loop(logger):
     else:
         logger.warn("Pas de calibration — distances indisponibles")
 
-    if not PICAM_AVAILABLE:
-        logger.warn("Pas de caméra — boucle caméra inactive")
-        return
-
+    # Capture via OpenCV/V4L2 (libcamera 0.2.0 d'Ubuntu Noble est buggé sur cette IMX219,
+    # on contourne en passant par le pilote V4L2 standard).
+    # Remplacer tout le bloc VideoCapture par :
     picam2 = Picamera2()
     picam2.configure(picam2.create_video_configuration(
         main={"size": RESOLUTION, "format": "RGB888"}))
     picam2.start()
     time.sleep(2)
-    logger.info("Caméra démarrée")
+    logger.info(f"Caméra démarrée via Picamera2 ({RESOLUTION[0]}x{RESOLUTION[1]})")
 
     aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
-    detector = aruco.ArucoDetector(aruco_dict, aruco.DetectorParameters())
+    aruco_params = aruco.DetectorParameters()
 
     marker_pts = np.array([
         [-MARKER_SIZE_M/2,  MARKER_SIZE_M/2, 0],
@@ -117,10 +110,20 @@ def camera_loop(logger):
 
     while True:
         frame = picam2.capture_array()
+        # frame est en RGB, donc remplacer COLOR_BGR2GRAY par COLOR_RGB2GRAY
         gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-        corners, ids, _ = detector.detectMarkers(gray)
+        # Et avant imencode, convertir RGB -> BGR pour OpenCV
+        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        # OpenCV renvoie déjà du BGR. La calibration a été faite avec une image
+        # passée en COLOR_RGB2GRAY (camera_service.py utilisait picamera2 en RGB888).
+        # On garde la même chaîne : on convertit BGR → RGB pour grayscale, puis on
+        # travaille sur frame_bgr pour l'annotation.
+        if frame_bgr.shape[1] != RESOLUTION[0] or frame_bgr.shape[0] != RESOLUTION[1]:
+            frame_bgr = cv2.resize(frame_bgr, RESOLUTION)
 
-        frame_bgr = frame.copy()
+        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        corners, ids, _ = aruco.detectMarkers(gray, aruco_dict, parameters=aruco_params)
+
         detections = {}
 
         if ids is not None:
