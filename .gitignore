@@ -1,3 +1,13 @@
+# ─── Python ───
 env/
-matrixLed/__pycache__/
-Local-Voice/__pycache__/
+**/__pycache__/
+*.pyc
+
+# ─── ROS2 / colcon (générés par 'colcon build' à la racine du workspace) ───
+build/
+install/
+log/
+
+# ─── Vision ───
+# Calibration caméra : garder le .npz si tu veux le versionner, sinon décommente
+# *.npz
