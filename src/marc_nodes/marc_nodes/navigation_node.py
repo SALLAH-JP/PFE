@@ -16,8 +16,10 @@ Fusionne les deux stratégies existantes :
     /nav_status         std_msgs/String           (JSON {event, target})
 
 Note : l'évitement d'obstacles par ultrasons a été retiré (capteurs jugés
-trop instables). L'évitement se fera plus tard via des marqueurs ArUco posés
-sur les obstacles importants.
+trop instables). L'évitement se fait désormais par marqueurs ArUco posés
+sur les obstacles statiques (voir OBSTACLES_MAP ci-dessous) — positions
+connues à l'avance, simple déviation latérale quand un obstacle se trouve
+sur la trajectoire.
 
 Déclencheur /nav_goal (JSON) :
     {"mode": "aruco", "id": 3}              → visual servoing vers le marqueur ID 3
@@ -37,6 +39,8 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String, Int32MultiArray
 
+from marc_nodes.maps import obstacle_positions
+
 
 # ── Paramètres ArUco (repris de navigation_service.py) ──
 KNOWN_TARGETS = [0, 1, 2, 3, 4, 5, 6]
@@ -51,6 +55,17 @@ GOAL_TOLERANCE_M = 0.25
 ANGLE_TOLERANCE = 15
 KP_TURN = 3.0
 MAX_LOST = 20
+
+# ── Évitement d'obstacles par marqueurs ArUco ──
+# La carte des obstacles est définie dans maps.py (partagée avec localization_node,
+# qui utilise les mêmes marqueurs pour recaler la pose vision).
+# Convention d'IDs :
+#   0-9   : stations (destinations)
+#   10-49 : marqueurs de localisation pure
+#   50-99 : obstacles fixes (meubles, machines) — servent aussi à la localisation
+OBSTACLE_RADIUS_M = 0.5    # distance à laquelle on commence à dévier
+OBSTACLE_CONE_DEG = 60     # demi-angle du cône devant le robot (au-delà, on ignore)
+OBSTACLE_AVOID_DEG = 30    # intensité de la déviation (degrés vers le côté opposé)
 
 
 class NavigationNode(Node):
@@ -226,13 +241,32 @@ class NavigationNode(Node):
             bearing = math.degrees(math.atan2(dx, -dy))
             err = self.angle_diff(bearing, heading)
 
+            # ── Évitement d'obstacles ArUco ──
+            # Pour chaque obstacle dans la carte partagée, on regarde s'il est
+            # devant nous (dans le cône) et assez proche. Si oui, on dévie
+            # du côté opposé.
+            side_avoidance = 0
+            closest_dist = float("inf")
+            for obs_id, (ox, oy) in obstacle_positions().items():
+                dist_to_obs = math.hypot(ox - x, oy - y)
+                if dist_to_obs > OBSTACLE_RADIUS_M + 0.3:
+                    continue
+                # Angle de l'obstacle par rapport au cap actuel
+                obs_bearing = math.degrees(math.atan2(ox - x, -(oy - y)))
+                obs_angle_rel = self.angle_diff(obs_bearing, heading)
+                # Devant nous (dans le cône) ?
+                if abs(obs_angle_rel) < OBSTACLE_CONE_DEG and dist_to_obs < closest_dist:
+                    closest_dist = dist_to_obs
+                    # Dévie du côté opposé à l'obstacle
+                    side_avoidance = OBSTACLE_AVOID_DEG if obs_angle_rel < 0 else -OBSTACLE_AVOID_DEG
+
             if abs(err) > ANGLE_TOLERANCE:
                 # Trop désaligné : rotation sur place
                 turn = TURN_SPEED if err > 0 else -TURN_SPEED
                 self.send_motor(0, turn)
             else:
-                # Aligné : avance avec correction proportionnelle
-                turn = max(-60, min(60, int(KP_TURN * err)))
+                # Aligné : avance avec correction proportionnelle + déviation obstacle
+                turn = max(-60, min(60, int(KP_TURN * err) + side_avoidance))
                 self.send_motor(FORWARD_SPEED, turn)
 
             time.sleep(0.1)

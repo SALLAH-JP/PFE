@@ -26,16 +26,13 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String, Float32
 
+from marc_nodes.maps import all_positions
 
-# ── CARTE DES MARQUEURS (positions x,y en mètres) — reprise de localization.py ──
-MARKERS_MAP = {
-    0: (-2.07, 0.0),
-    1: (-2.08, 1.07),
-    2: (2.17, 1.05),
-    3: (-0.66, 2.45),
-    4: (2.17, -0.33),
-    5: (0.96, -3.39),
-}
+
+# Carte des marqueurs (positions x, y en mètres) — chargée depuis maps.py
+# Contient tous les marqueurs fixes connus, y compris les obstacles
+# (les obstacles servent aussi à recaler la pose vision).
+MARKERS_MAP = all_positions()
 
 # Offset IMU : yaw brut quand MARC est face à -Y (cap 0° salle)
 YAW_OFFSET = -5.5
