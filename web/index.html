@@ -20,162 +20,89 @@
 
   <main class="main-grid">
 
-    <!-- ===== PARCOURS SVG ===== -->
-    <section class="parcours-card">
-      <div class="parcours-header">
-        <p class="card-label">Parcours Robotique</p>
-        <button class="guide-toggle" id="guideToggle" onclick="toggleGuideMode()">
-          <span class="guide-dot" id="guideDot"></span>
-          <span id="guideLabel">Mode guide OFF</span>
-        </button>
+    <!-- ===== CAMÉRA + LOCALISATION ===== -->
+    <section class="camera-card">
+
+      <div class="camera-header">
+        <p class="card-label">Vision MARC</p>
+        <span class="camera-status" id="cameraStatus">● LIVE</span>
       </div>
 
-      <div class="parcours-wrap">
-        <svg id="parcours-svg" viewBox="0 0 580 380" xmlns="http://www.w3.org/2000/svg">
+      <div class="camera-feed">
+        <img id="cameraFeed" src="" alt="Flux caméra"
+             onerror="this.classList.add('cam-error')"
+             onload="this.classList.remove('cam-error')">
+        <div class="camera-placeholder">Caméra hors ligne</div>
+      </div>
 
-          <!-- Piste ovale ombre -->
-          <ellipse cx="290" cy="192" rx="238" ry="148" fill="none" stroke="#dde1ec" stroke-width="30" />
-          <!-- Piste principale -->
-          <ellipse cx="290" cy="190" rx="238" ry="148" fill="none" stroke="#e8ebf2" stroke-width="26" />
-          <!-- Ligne centrale pointillée -->
-          <ellipse cx="290" cy="190" rx="238" ry="148" fill="none" stroke="#d0d6e8" stroke-width="1.5" stroke-dasharray="10,8" />
+      <!-- Localisation temps réel -->
+      <div class="pose-panel">
+        <div class="pose-row">
+          <span class="pose-label">X</span>
+          <span class="pose-value" id="poseX">—</span>
+          <span class="pose-unit">m</span>
+        </div>
+        <div class="pose-row">
+          <span class="pose-label">Y</span>
+          <span class="pose-value" id="poseY">—</span>
+          <span class="pose-unit">m</span>
+        </div>
+        <div class="pose-row">
+          <span class="pose-label">CAP</span>
+          <span class="pose-value" id="poseHeading">—</span>
+          <span class="pose-unit">°</span>
+        </div>
+        <div class="pose-row source">
+          <span class="pose-label">SRC</span>
+          <span class="pose-value" id="poseSource">aucune</span>
+        </div>
+      </div>
 
-          <!-- Intérieur du parcours -->
-          <ellipse cx="290" cy="190" rx="196" ry="108" fill="#f7f8fc" stroke="#e0e4ef" stroke-width="1" />
-          <text x="290" y="183" class="center-label">Labo</text>
-          <text x="290" y="200" class="center-label">Robotique</text>
+      <!-- Détections ArUco visibles -->
+      <div class="camera-detections" id="cameraDetections">
+        <span class="cam-det-empty">Aucun marqueur détecté</span>
+      </div>
 
-          <!-- Flèches direction -->
-          <polygon points="388,46 398,42 394,54"   fill="#c0c8dc"/>
-          <polygon points="502,152 510,144 512,158" fill="#c0c8dc"/>
-          <polygon points="394,338 382,342 386,330" fill="#c0c8dc"/>
-          <polygon points="186,338 176,332 182,322" fill="#c0c8dc"/>
-          <polygon points="72,152 64,160 66,148"    fill="#c0c8dc"/>
-          <polygon points="162,44 150,48 154,36"    fill="#c0c8dc"/>
-
-          <!-- STATION 0 — Base MARC (centre) -->
-          <g class="station" id="st-base" onclick="selectStation('base')">
-            <circle cx="290" cy="190" r="28" class="station-circle"/>
-            <circle cx="290" cy="190" r="22" class="station-inner"/>
-            <text x="290" y="186" class="station-emoji">🏠</text>
-            <text x="290" y="199" class="station-name">Base</text>
-          </g>
-
-          <!-- STATION 1 — Nao (gauche) -->
-          <g class="station" id="st-nao" onclick="selectStation('nao')">
-            <circle cx="52" cy="190" r="28" class="station-circle"/>
-            <circle cx="52" cy="190" r="22" class="station-inner"/>
-            <text x="52" y="186" class="station-emoji">🤖</text>
-            <text x="52" y="199" class="station-name">Nao</text>
-          </g>
-
-          <!-- STATION 2 — Vector (haut gauche) -->
-          <g class="station" id="st-vector" onclick="selectStation('vector')">
-            <circle cx="183" cy="46" r="28" class="station-circle"/>
-            <circle cx="183" cy="46" r="22" class="station-inner"/>
-            <text x="183" y="42" class="station-emoji">🚗</text>
-            <text x="183" y="55" class="station-name">Vector</text>
-          </g>
-
-          <!-- STATION 3 — Pepper (haut droite) -->
-          <g class="station" id="st-pepper" onclick="selectStation('pepper')">
-            <circle cx="397" cy="46" r="28" class="station-circle"/>
-            <circle cx="397" cy="46" r="22" class="station-inner"/>
-            <text x="397" y="42" class="station-emoji">🤖</text>
-            <text x="397" y="55" class="station-name">Pepper</text>
-          </g>
-
-          <!-- STATION 4 — Imprimante 3D (droite) -->
-          <g class="station" id="st-imp3d" onclick="selectStation('imp3d')">
-            <circle cx="528" cy="190" r="28" class="station-circle"/>
-            <circle cx="528" cy="190" r="22" class="station-inner"/>
-            <text x="528" y="186" class="station-emoji">🖨️</text>
-            <text x="528" y="199" class="station-name">Imp. 3D</text>
-          </g>
-
-          <!-- STATION 5 — Baxter (bas droite) -->
-          <g class="station" id="st-baxter" onclick="selectStation('baxter')">
-            <circle cx="397" cy="334" r="28" class="station-circle"/>
-            <circle cx="397" cy="334" r="22" class="station-inner"/>
-            <text x="397" y="330" class="station-emoji">🦾</text>
-            <text x="397" y="343" class="station-name">Baxter</text>
-          </g>
-
-          <!-- STATION 6 — Bras robotique (bas gauche) -->
-          <g class="station" id="st-bras" onclick="selectStation('bras')">
-            <circle cx="183" cy="334" r="28" class="station-circle"/>
-            <circle cx="183" cy="334" r="22" class="station-inner"/>
-            <text x="183" y="330" class="station-emoji">🦿</text>
-            <text x="183" y="343" class="station-name">Bras</text>
-          </g>
-
-          <!-- MARC robot mobile -->
-          <g id="marc-robot">
-            <circle id="marc-glow" cx="290" cy="190" r="20" fill="rgba(59,125,248,0.18)" />
-            <circle id="marc-dot"  cx="290" cy="190" r="13" fill="#3b7df8" stroke="white" stroke-width="2.5" />
-            <text   id="marc-text" x="290"  y="194"  class="marc-text">M</text>
-          </g>
-
+      <!-- BOUTON STOP D'URGENCE -->
+      <button class="stop-btn" id="stopBtn" onclick="stopNavigation()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <rect x="6" y="6" width="12" height="12" rx="1"/>
         </svg>
-      </div>
+        <span>STOP</span>
+      </button>
 
-      <div class="parcours-legend">
-        <div class="legend-item"><div class="legend-dot current"></div><span>Position actuelle</span></div>
-        <div class="legend-item"><div class="legend-dot target"></div><span>Destination</span></div>
-        <div class="legend-item"><div class="legend-dot idle"></div><span>Station disponible</span></div>
-      </div>
     </section>
 
     <!-- ===== DESTINATIONS ===== -->
-   <!-- ===== CAMÉRA + DESTINATIONS ===== -->
     <aside class="controls-panel">
 
-      <!-- Flux caméra -->
-      <div class="camera-card">
-        <div class="camera-header">
-          <p class="card-label" style="margin:0">Caméra MARC</p>
-          <span class="camera-status" id="cameraStatus">● LIVE</span>
-        </div>
-        <div class="camera-feed">
-          <img id="cameraFeed" src="" alt="Flux caméra"
-               onerror="this.classList.add('cam-error')"
-               onload="this.classList.remove('cam-error')">
-          <div class="camera-placeholder">Caméra hors ligne</div>
-        </div>
-        <div class="camera-detections" id="cameraDetections">
-          <span class="cam-det-empty">Aucun marqueur détecté</span>
-        </div>
-      </div>
+      <p class="card-label">Destinations</p>
 
-      <p class="card-label" style="padding-left:4px;margin-bottom:8px;margin-top:6px">Destinations</p>
-      <div class="station-card" id="card-base"   onclick="selectStation('base')">
-        <div class="station-info"><div class="station-icon-sm">🏠</div><div><div class="station-card-name">Base</div><div class="station-card-sub">Station 0 — départ</div></div></div>
-        <div class="station-badge" id="badge-base">—</div>
-      </div>
       <div class="station-card" id="card-nao"    onclick="selectStation('nao')">
-        <div class="station-info"><div class="station-icon-sm">🤖</div><div><div class="station-card-name">Nao</div><div class="station-card-sub">Station 1 — humanoïde</div></div></div>
+        <div class="station-info"><div class="station-icon-sm">🤖</div><div><div class="station-card-name">Nao</div><div class="station-card-sub">Humanoïde · ID 10</div></div></div>
         <div class="station-badge" id="badge-nao">—</div>
       </div>
       <div class="station-card" id="card-vector" onclick="selectStation('vector')">
-        <div class="station-info"><div class="station-icon-sm">🚗</div><div><div class="station-card-name">Vector</div><div class="station-card-sub">Station 2 — mobile autonome</div></div></div>
+        <div class="station-info"><div class="station-icon-sm">🚗</div><div><div class="station-card-name">Vector</div><div class="station-card-sub">Mobile autonome · ID 11</div></div></div>
         <div class="station-badge" id="badge-vector">—</div>
       </div>
       <div class="station-card" id="card-pepper" onclick="selectStation('pepper')">
-        <div class="station-info"><div class="station-icon-sm">🤖</div><div><div class="station-card-name">Pepper</div><div class="station-card-sub">Station 3 — social</div></div></div>
+        <div class="station-info"><div class="station-icon-sm">🤖</div><div><div class="station-card-name">Pepper</div><div class="station-card-sub">Social · ID 12</div></div></div>
         <div class="station-badge" id="badge-pepper">—</div>
       </div>
       <div class="station-card" id="card-imp3d"  onclick="selectStation('imp3d')">
-        <div class="station-info"><div class="station-icon-sm">🖨️</div><div><div class="station-card-name">Imprimante 3D</div><div class="station-card-sub">Station 4 — fabrication</div></div></div>
+        <div class="station-info"><div class="station-icon-sm">🖨️</div><div><div class="station-card-name">Imprimante 3D</div><div class="station-card-sub">Fabrication · ID 13</div></div></div>
         <div class="station-badge" id="badge-imp3d">—</div>
       </div>
       <div class="station-card" id="card-baxter" onclick="selectStation('baxter')">
-        <div class="station-info"><div class="station-icon-sm">🦾</div><div><div class="station-card-name">Baxter</div><div class="station-card-sub">Station 5 — collaboratif</div></div></div>
+        <div class="station-info"><div class="station-icon-sm">🦾</div><div><div class="station-card-name">Baxter</div><div class="station-card-sub">Collaboratif · ID 14</div></div></div>
         <div class="station-badge" id="badge-baxter">—</div>
       </div>
       <div class="station-card" id="card-bras"   onclick="selectStation('bras')">
-        <div class="station-info"><div class="station-icon-sm">🦿</div><div><div class="station-card-name">Bras robotique</div><div class="station-card-sub">Station 6 — Franka Panda</div></div></div>
+        <div class="station-info"><div class="station-icon-sm">🦿</div><div><div class="station-card-name">Bras Franka</div><div class="station-card-sub">Bras robotique · ID 15</div></div></div>
         <div class="station-badge" id="badge-bras">—</div>
       </div>
+
     </aside>
 
   </main>
@@ -205,7 +132,7 @@
           </div>
         </div>
         <div class="voice-hints">
-          Dites : <em>"va chez Nao"</em>, <em>"va à l'imprimante"</em>, <em>"retourne à la base"</em>
+          Dites : <em>"va voir Pepper"</em>, <em>"présente-moi NAO"</em>, <em>"arrête"</em>
         </div>
       </div>
     </div>

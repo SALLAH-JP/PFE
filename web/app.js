@@ -1,137 +1,109 @@
-const STATIONS = {
-  base:   { cx: 290, cy: 190 },
-  nao:    { cx: 52,  cy: 190 },
-  vector: { cx: 183, cy: 46  },
-  pepper: { cx: 397, cy: 46  },
-  imp3d:  { cx: 528, cy: 190 },
-  baxter: { cx: 397, cy: 334 },
-  bras:   { cx: 183, cy: 334 },
-};
+// MARC — app.js
+// Pilotage de l'interface web : envoie les ordres via /command (LLM)
+// et /nav_stop ; affiche en temps réel la pose et le statut via SSE.
 
-let currentStation  = 'base';
-let targetStation   = null;
-let guideModeActive = false;
+let currentStation = null;
+let targetStation  = null;
 
-// ── Mode guide ──
-async function toggleGuideMode() {
-  // L'UI ne change PAS tout de suite — on attend la confirmation du serveur
-  // via SSE. Évite les états incohérents si le serveur refuse ou tarde.
-  const requested = !guideModeActive;
-  try {
-    await fetch('/line_following', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ enabled: requested }),
-    });
-    // applyRobotState() sera appelé par l'événement SSE 'state'
-    // dès que send_mode() aura terminé côté serveur.
-  } catch {
-    addLog('Erreur toggle mode guide', 'err');
-  }
-}
 
-function updateGuideButton() {
-  const btn   = document.getElementById('guideToggle');
-  const label = document.getElementById('guideLabel');
-  label.textContent = `Mode guide ${guideModeActive ? 'ON' : 'OFF'}`;
-  btn.classList.toggle('guide-on', guideModeActive);
-}
-
-// ── Déplacer MARC ──
-function moveMarc(stationId) {
-  const s = STATIONS[stationId];
-  if (!s) return;
-  document.getElementById('marc-dot').setAttribute('cx', s.cx);
-  document.getElementById('marc-dot').setAttribute('cy', s.cy);
-  document.getElementById('marc-glow').setAttribute('cx', s.cx);
-  document.getElementById('marc-glow').setAttribute('cy', s.cy);
-  document.getElementById('marc-text').setAttribute('x', s.cx);
-  document.getElementById('marc-text').setAttribute('y', s.cy + 4);
-}
-
-// ── Styles stations ──
-function updateStationStyles() {
-  Object.keys(STATIONS).forEach(id => {
-    const svgGroup = document.getElementById('st-' + id);
-    const cardEl   = document.getElementById('card-' + id);
-    const badgeEl  = document.getElementById('badge-' + id);
-    if (!svgGroup || !cardEl) return;
-    svgGroup.classList.remove('is-current', 'is-target');
-    cardEl.classList.remove('is-current', 'is-target');
-    if (id === currentStation) {
-      svgGroup.classList.add('is-current');
-      cardEl.classList.add('is-current');
-      if (badgeEl) badgeEl.textContent = 'ICI';
-    } else if (id === targetStation) {
-      svgGroup.classList.add('is-target');
-      cardEl.classList.add('is-target');
-      if (badgeEl) badgeEl.textContent = 'CIBLE';
-    } else {
-      if (badgeEl) badgeEl.textContent = '—';
-    }
-  });
-}
-
-// ── Sélection destination ──
-function selectStation(id) {
-  if (id === currentStation) {
-    addLog(`MARC est déjà à ${id}`, 'info');
+// ══════════════════════════════════════════
+//  SÉLECTION D'UNE STATION
+// ══════════════════════════════════════════
+async function selectStation(stationKey) {
+  if (stationKey === currentStation) {
+    addLog(`MARC est déjà à ${stationKey}`, 'info');
     return;
   }
-  targetStation = id;
+  targetStation = stationKey;
   updateStationStyles();
-  addLog(`Destination → ${id.toUpperCase()}`, 'cmd');
-  sendDestination(id);
-}
+  addLog(`Destination demandée → ${stationKey.toUpperCase()}`, 'cmd');
 
-// ── Envoi destination ──
-async function sendDestination(destination) {
+  // On envoie au serveur, qui passe par le LLM pour générer la commande
   try {
     const res  = await fetch('/command', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ destination }),
+      body:    JSON.stringify({ destination: stationKey }),
     });
     const data = await res.json();
-    if (data.robot_state) applyRobotState(data.robot_state);
-    if (data.ai_reply)    document.getElementById('aiReply').textContent = data.ai_reply;
-    addLog('Serveur ✓', 'info');
+    if (data.ai_reply) document.getElementById('aiReply').textContent = data.ai_reply;
   } catch {
-    addLog('[démo] simulation locale', 'info');
-    simulateMove(destination);
+    addLog('Erreur envoi commande', 'err');
   }
 }
 
-// ── Simulation locale ──
-function simulateMove(dest) {
-  addLog(`MARC se déplace vers ${dest.toUpperCase()}...`, 'info');
-  setTimeout(() => {
-    currentStation = dest;
-    targetStation  = null;
-    moveMarc(dest);
-    updateStationStyles();
-    addLog(`MARC est arrivé à ${dest.toUpperCase()}`, 'info');
-    document.getElementById('aiReply').textContent = `Je suis arrivé à ${dest}.`;
-  }, 1500);
+
+// ══════════════════════════════════════════
+//  STOP D'URGENCE
+// ══════════════════════════════════════════
+async function stopNavigation() {
+  addLog('STOP demandé', 'err');
+  targetStation = null;
+  updateStationStyles();
+  try {
+    await fetch('/nav_stop', { method: 'POST' });
+  } catch {
+    addLog('Erreur envoi STOP', 'err');
+  }
 }
 
-// ── Appliquer état serveur ──
+
+// ══════════════════════════════════════════
+//  STYLES STATIONS (highlight current / target)
+// ══════════════════════════════════════════
+const STATION_KEYS = ['nao', 'vector', 'pepper', 'imp3d', 'baxter', 'bras'];
+
+function updateStationStyles() {
+  STATION_KEYS.forEach(key => {
+    const card  = document.getElementById('card-' + key);
+    const badge = document.getElementById('badge-' + key);
+    if (!card) return;
+    card.classList.remove('is-current', 'is-target');
+    if (key === currentStation) {
+      card.classList.add('is-current');
+      if (badge) badge.textContent = 'ICI';
+    } else if (key === targetStation) {
+      card.classList.add('is-target');
+      if (badge) badge.textContent = 'CIBLE';
+    } else {
+      if (badge) badge.textContent = '—';
+    }
+  });
+}
+
+
+// ══════════════════════════════════════════
+//  APPLIQUER L'ÉTAT REÇU DU SERVEUR
+// ══════════════════════════════════════════
 function applyRobotState(state) {
-  if (state.current) {
-    currentStation = state.current;
-    moveMarc(state.current);
-  }
-  if (state.target !== undefined) targetStation = state.target;
-  if (state.line_following !== undefined) {
-    guideModeActive = state.line_following;
-    updateGuideButton();
-  }
+  if (state.current !== undefined) currentStation = state.current;
+  if (state.target  !== undefined) targetStation  = state.target;
+  if (state.pose)                  applyPose(state.pose);
   updateStationStyles();
 }
 
-// ═══════════════════════════════════════════
+function applyPose(pose) {
+  const px = document.getElementById('poseX');
+  const py = document.getElementById('poseY');
+  const ph = document.getElementById('poseHeading');
+  const ps = document.getElementById('poseSource');
+  if (pose.x !== null && pose.x !== undefined) {
+    px.textContent = Number(pose.x).toFixed(2);
+    py.textContent = Number(pose.y).toFixed(2);
+    ph.textContent = Number(pose.heading).toFixed(0);
+    ps.textContent = pose.source || '—';
+  } else {
+    px.textContent = '—';
+    py.textContent = '—';
+    ph.textContent = '—';
+    ps.textContent = 'aucune';
+  }
+}
+
+
+// ══════════════════════════════════════════
 //  PUSH-TO-TALK
-// ═══════════════════════════════════════════
+// ══════════════════════════════════════════
 let mediaRecorder = null;
 let audioChunks   = [];
 let mediaStream   = null;
@@ -193,33 +165,9 @@ async function sendAudioToServer(mimeType) {
     }
     if (data.robot_state) applyRobotState(data.robot_state);
   } catch {
-    addLog('Erreur serveur — fallback Web Speech', 'err');
-    fallbackWebSpeech();
+    addLog('Erreur transcription serveur', 'err');
   }
   setMicStatus('Maintenir pour parler', '');
-}
-
-function fallbackWebSpeech() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { addLog('Web Speech API non supportée', 'err'); return; }
-  const rec = new SR();
-  rec.continuous = false; rec.interimResults = false; rec.lang = 'fr-FR';
-  rec.onresult = async (event) => {
-    const transcript = event.results[0][0].transcript.trim();
-    document.getElementById('userText').textContent = transcript;
-    addLog(`[fallback] Voix : "${transcript}"`, 'info');
-    try {
-      const res  = await fetch('/send_text', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_text: transcript }),
-      });
-      const data = await res.json();
-      if (data.ai_reply)    document.getElementById('aiReply').textContent = data.ai_reply;
-      if (data.robot_state) applyRobotState(data.robot_state);
-    } catch { document.getElementById('aiReply').textContent = "Commande non reconnue."; }
-  };
-  rec.onerror = (e) => addLog('Fallback erreur : ' + e.error, 'err');
-  rec.start();
 }
 
 micBtn.addEventListener('mousedown',  (e) => { e.preventDefault(); startRecording(); });
@@ -233,6 +181,10 @@ function setMicStatus(text, cls) {
   micStatus.className   = 'mic-status' + (cls ? ' ' + cls : '');
 }
 
+
+// ══════════════════════════════════════════
+//  JOURNAL
+// ══════════════════════════════════════════
 function addLog(msg, type = '') {
   const container = document.getElementById('logEntries');
   const t = new Date().toTimeString().slice(0, 8);
@@ -247,15 +199,12 @@ document.getElementById('logClear').addEventListener('click', () => {
   document.getElementById('logEntries').innerHTML = '';
 });
 
-// ═══════════════════════════════════════════
-//  CONNEXION TEMPS RÉEL (Server-Sent Events)
-// ═══════════════════════════════════════════
-//  Le serveur pousse l'état au navigateur dès qu'il change
-//  (arrivée du robot, mode guide, parole de MARC, etc.).
-//  Plus besoin de recharger la page.
 
-let eventSource    = null;
-let sseConnected   = false;
+// ══════════════════════════════════════════
+//  CONNEXION TEMPS RÉEL (SSE)
+// ══════════════════════════════════════════
+let eventSource  = null;
+let sseConnected = false;
 
 function connectSSE() {
   if (eventSource) eventSource.close();
@@ -269,9 +218,14 @@ function connectSSE() {
     }
   });
 
-  // État complet du robot (position, cible, mode guide…)
+  // État complet du robot (current, target, mode, pose)
   eventSource.addEventListener('state', (e) => {
     try { applyRobotState(JSON.parse(e.data)); } catch {}
+  });
+
+  // Pose temps réel (envoi indépendant haute fréquence depuis localization)
+  eventSource.addEventListener('pose', (e) => {
+    try { applyPose(JSON.parse(e.data)); } catch {}
   });
 
   // MARC vient de prononcer une phrase
@@ -285,7 +239,7 @@ function connectSSE() {
     } catch {}
   });
 
-  // Entrée de journal poussée par le serveur
+  // Journal
   eventSource.addEventListener('log', (e) => {
     try {
       const { message, level } = JSON.parse(e.data);
@@ -293,7 +247,6 @@ function connectSSE() {
     } catch {}
   });
 
-  // Reconnexion automatique gérée par le navigateur
   eventSource.addEventListener('error', () => {
     if (sseConnected) {
       sseConnected = false;
@@ -317,14 +270,13 @@ function setStatusDot(online) {
 }
 
 connectSSE();
-moveMarc(currentStation);
 updateStationStyles();
 
 
-// ═══════════════════════════════════════════
+// ══════════════════════════════════════════
 //  CAMÉRA (service dédié sur port 5001)
-// ═══════════════════════════════════════════
-const CAMERA_HOST = window.CAMERA_HOST || `http://${window.location.hostname}:5001`;
+// ══════════════════════════════════════════
+const CAMERA_HOST = window.CAMERA_HOST || `https://${window.location.hostname}:5001`;
 
 function initCamera() {
   const feed = document.getElementById('cameraFeed');
@@ -355,7 +307,7 @@ async function pollDetections() {
   } catch {
     if (statusEl) { statusEl.textContent = '● OFFLINE'; statusEl.classList.add('offline'); }
   }
-  setTimeout(pollDetections, 500);  // rafraîchit 2×/s
+  setTimeout(pollDetections, 500);
 }
 
 initCamera();
