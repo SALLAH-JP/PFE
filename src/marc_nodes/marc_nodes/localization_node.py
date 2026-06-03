@@ -35,7 +35,7 @@ from marc_nodes.maps import all_positions
 MARKERS_MAP = all_positions()
 
 # Offset IMU : yaw brut quand MARC est face à -Y (cap 0° salle)
-YAW_OFFSET = -5.5
+YAW_OFFSET = 0
 
 
 class LocalizationNode(Node):

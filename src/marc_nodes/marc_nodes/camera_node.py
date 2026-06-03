@@ -37,7 +37,7 @@ from picamera2 import Picamera2
 
 # ── CONFIG (reprise de camera_service.py) ──
 MARKER_SIZE_M = 0.077
-DISTANCE_CORRECTION = 1
+DISTANCE_CORRECTION = 0.738
 RESOLUTION = (640, 480)
 
 ROOT = "/home/pi/MARC"

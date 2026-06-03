@@ -1,6 +1,6 @@
 void setReports(void) {
   Serial.println("Setting desired reports");
-  if (imu.enableRotationVector(10000) == true) {
+  if (imu.enableGameRotationVector(10) == true) {
     Serial.println(F("Rotation vector enabled"));
     Serial.println(F("Output in form roll, pitch, yaw"));
     delay(100);

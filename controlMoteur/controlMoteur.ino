@@ -93,10 +93,8 @@ void loop() {
   inputV = measureSpeed();
 
   if ( imu.getSensorEvent() == true) {
-    if ( imu.getSensorEventID() == SENSOR_REPORTID_ROTATION_VECTOR ) {
+    if ( imu.getSensorEventID() == SENSOR_REPORTID_GAME_ROTATION_VECTOR ) {
     
-      inputA = (imu.getRoll()) * 180.0 / PI - 180;
-      if ( inputA < -180) inputA += 360;
 
       // Envoi du yaw au Pi à 10 Hz (localisation)
       static unsigned long lastYawSend = 0;

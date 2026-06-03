@@ -24,12 +24,12 @@ Repère salle :
 # Le webbridge utilise ça pour traduire "Pepper" -> ID 12, qui est ensuite
 # publié sur /nav_goal en mode ArUco.
 STATIONS = {
-    "nao":    10,
+    "nao":    0,
     "vector": 11,
     "pepper": 12,
     "imp3d":  13,
-    "baxter": 14,
-    "bras":   15,
+    "baxter": 2,
+    "bras":   4,
 }
 
 

@@ -25,10 +25,10 @@ import statistics
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Bool, Int32, Float32, Int32MultiArray, Float32MultiArray
+from std_msgs.msg import Bool, Int32, Float32, Int32MultiArray, Float32MultiArray, Empty
 
 import serial
-
+import time
 
 # ─────────────────────────────────────────────
 #  PARAMÈTRES (surchageables au lancement)
@@ -55,6 +55,11 @@ class FirmwareNode(Node):
         self._us_gauche_buf = deque(maxlen=10)
         self._us_droite_buf = deque(maxlen=10)
 
+        self._imu_yaw_brut = None
+        self._imu_offset = None
+        self._imu_start = time.time()
+        self.IMU_SETTLE_S = 5.0
+
         # ── Connexion série ──
         self.serial_ok = False
         self.arduino = None
@@ -62,7 +67,6 @@ class FirmwareNode(Node):
             self.arduino = serial.Serial(port, baud, timeout=2)
             # Laisse l'Arduino redémarrer après ouverture du port
             self.create_rate(1).sleep() if False else None
-            import time
             time.sleep(2)
             self.arduino.reset_input_buffer()
             self.serial_ok = True
@@ -79,6 +83,7 @@ class FirmwareNode(Node):
         # ── Subscribers ──
         self.create_subscription(Int32MultiArray, "/cmd_motor", self.on_cmd_motor, 10)
         self.create_subscription(Bool, "/line_mode", self.on_line_mode, 10)
+        self.create_subscription(Empty, "/imu_tare", self.on_imu_tare, 10)
 
         # ── Boucle série dans un thread dédié (comme serial_worker) ──
         self._buffer = ""
@@ -108,11 +113,20 @@ class FirmwareNode(Node):
         except Exception as e:
             self.get_logger().error(f"Erreur envoi mode : {e}")
 
+    def on_imu_tare(self, _msg):
+        if self._imu_yaw_brut is not None:
+            self._imu_offset = self._imu_yaw_brut
+            self.get_logger().info(
+                f"IMU tare manuelle à {self._imu_yaw_brut:.1f}°")
+        else:
+            self._imu_offset = None
+            self._imu_start = time.time()
+            self.get_logger().info("IMU tare différée (en attente trame)")
+
     # ─────────────────────────────────────────
     #  BOUCLE SÉRIE (série -> ROS2)
     # ─────────────────────────────────────────
     def _serial_loop(self):
-        import time
         while self._running and rclpy.ok():
             if not self.serial_ok:
                 time.sleep(0.1)
@@ -150,9 +164,23 @@ class FirmwareNode(Node):
 
         elif line.startswith("Y:"):
             try:
-                self.pub_yaw.publish(Float32(data=float(line[2:])))
+                self._imu_yaw_brut = float(line[2:])
             except ValueError:
-                pass
+                return
+
+            # Tare auto après settle initial
+            if self._imu_offset is None:
+                if time.time() - self._imu_start >= self.IMU_SETTLE_S:
+                    self._imu_offset = self._imu_yaw_brut
+                    self.get_logger().info(
+                        f"IMU tare auto à {self._imu_yaw_brut:.1f}° après settle")
+                else:
+                    return
+
+            heading = self._imu_yaw_brut - self._imu_offset
+            while heading > 180:  heading -= 360
+            while heading < -180: heading += 360
+            self.pub_yaw.publish(Float32(data=heading))
 
         elif line.startswith("D:"):
             try:
