@@ -39,7 +39,8 @@ from collections import deque
 # ─────────────────────────────────────────────
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float32, Int32MultiArray, String
+from std_msgs.msg import Empty, Float32, Int32MultiArray, String
+from geometry_msgs.msg import Point
 
 # ─────────────────────────────────────────────
 #  FLASK
@@ -49,7 +50,7 @@ from flask import Flask, request, jsonify, send_from_directory, Response
 # ─────────────────────────────────────────────
 #  Stations (mapping nom -> ID ArUco) depuis maps.py
 # ─────────────────────────────────────────────
-from marc_nodes.maps import STATIONS as STATION_TO_ARUCO_ID
+from marc_nodes.maps import STATION_POS
 
 # ─────────────────────────────────────────────
 #  Imports du projet existant (LLM, TTS, STT, LED)
@@ -114,8 +115,18 @@ class WebBridgeNode(Node):
         # /nav_goal pour déclencher une navigation autonome.
         # /led_expression pour les yeux.
         self.pub_cmd_motor = self.create_publisher(Int32MultiArray, "/cmd_motor", 10)
-        self.pub_nav_goal  = self.create_publisher(String, "/nav_goal", 10)
+        # Navigation : on s'adresse à mission_node, jamais directement au contrôleur.
+        #   /mission_station : destination nommée (mission_node résout le parcours)
+        #   /mission_point   : point brut (x, y) → trajet direct
+        #   /nav_cancel      : annule la mission en cours
+        self.pub_mission_station = self.create_publisher(String, "/mission_station", 10)
+        self.pub_mission_point   = self.create_publisher(Point,  "/mission_point",   10)
+        self.pub_nav_cancel      = self.create_publisher(Empty,  "/nav_cancel",      10)
         self.pub_led       = self.create_publisher(String, "/led_expression", 10)
+        # /imu_tare : déclenche une re-tare du cap (yaw) côté firmware_node.
+        self.pub_imu_tare  = self.create_publisher(Empty, "/imu_tare", 10)
+        # /nav_localize : déclenche un scan de localisation (rotation) si besoin.
+        self.pub_nav_localize = self.create_publisher(Empty, "/nav_localize", 10)
 
         # ── Subscribers ROS2 ──
         # Capteurs bas niveau (debug)
@@ -152,29 +163,27 @@ class WebBridgeNode(Node):
             threading.Thread(target=stop_after, daemon=True).start()
 
     # ─────────────────────────────────────────
-    #  NAVIGATION — publication sur /nav_goal
+    #  NAVIGATION — délégation à mission_node
     # ─────────────────────────────────────────
     def nav_goto_station(self, station_key: str) -> bool:
-        """Déclenche une navigation visual-servoing vers une station nommée.
-        Publie sur /nav_goal en mode ArUco avec l'ID de la station."""
-        aruco_id = STATION_TO_ARUCO_ID.get(station_key.lower())
-        if aruco_id is None:
+        """Demande une navigation vers une station nommée.
+        mission_node résout le parcours (waypoints) et pilote navigation_node."""
+        name = station_key.lower()
+        if name not in STATION_POS:
             self.get_logger().warn(f"Station inconnue : {station_key}")
             return False
-        msg = String()
-        msg.data = json.dumps({"mode": "aruco", "id": aruco_id})
-        self.pub_nav_goal.publish(msg)
-        self.robot_state["target"] = station_key.lower()
+        self.pub_mission_station.publish(String(data=name))
+        self.robot_state["target"] = name
         self.robot_state["mode"]   = "navigating"
         self.broadcast_state()
-        self.broadcast_log(f"Navigation → {station_key} (ID {aruco_id})", "cmd")
+        self.broadcast_log(f"Navigation → {station_key}", "cmd")
         return True
 
     def nav_goto_xy(self, x: float, y: float) -> bool:
-        """Déclenche un go-to-goal vers (x, y) en mètres."""
-        msg = String()
-        msg.data = json.dumps({"mode": "goto", "x": float(x), "y": float(y)})
-        self.pub_nav_goal.publish(msg)
+        """Demande un trajet direct vers un point (x, y) en mètres."""
+        p = Point()
+        p.x, p.y, p.z = float(x), float(y), 0.0
+        self.pub_mission_point.publish(p)
         self.robot_state["target"] = f"({x:.2f}, {y:.2f})"
         self.robot_state["mode"]   = "navigating"
         self.broadcast_state()
@@ -182,17 +191,24 @@ class WebBridgeNode(Node):
         return True
 
     def nav_stop(self):
-        """Arrête la navigation en cours et coupe les moteurs."""
-        msg = String()
-        msg.data = json.dumps({"mode": "stop"})
-        self.pub_nav_goal.publish(msg)
-        # Sécurité : on coupe aussi directement les moteurs au cas où
-        # le navigation_node ne réagirait pas immédiatement.
+        """Annule la mission en cours et coupe les moteurs."""
+        self.pub_nav_cancel.publish(Empty())
+        # Sécurité : on coupe aussi directement les moteurs au cas où.
         self.set_motor(0, 0)
         self.robot_state["target"] = None
         self.robot_state["mode"]   = "idle"
         self.broadcast_state()
         self.broadcast_log("STOP — navigation interrompue", "err")
+
+    def imu_tare(self):
+        """Publie sur /imu_tare : firmware_node refixe le cap courant à 0°."""
+        self.pub_imu_tare.publish(Empty())
+        self.broadcast_log("Cap réinitialisé (tare yaw)", "cmd")
+
+    def localize(self):
+        """Déclenche un scan de localisation (rotation jusqu'à acquérir la pose)."""
+        self.pub_nav_localize.publish(Empty())
+        self.broadcast_log("Localisation — recherche d'un marqueur", "cmd")
 
     # ─────────────────────────────────────────
     #  CALLBACKS ROS2 (état robot -> SSE navigateur)
@@ -321,11 +337,15 @@ class WebBridgeNode(Node):
 - Mode : {self.robot_state.get("mode")}
 
 Règles :
-- MARC navigue désormais par marqueurs ArUco (plus de suivi de ligne).
-- Pour aller vers une destination, génère :
+- MARC navigue vers des coordonnées de la salle (localisation + planification de chemin).
+- Pour aller vers une station, génère :
   {{"type": "commande", "action": "moveTo", "response": "Je me dirige vers <destination>.", "destination": "<Nao|Vector|Pepper|Imprimante3D|Baxter|brasRobotique>"}}
-- Pour annuler/arrêter une navigation en cours, génère :
-  {{"type": "commande", "action": "stopNav", "response": "J'arrête."}}"""
+- Pour aller vers un point précis, génère :
+  {{"type": "commande", "action": "goTo", "response": "Je m'y rends.", "x": <mètres>, "y": <mètres>}}
+- Pour arrêter le déplacement en cours, génère :
+  {{"type": "commande", "action": "stopNav", "response": "J'arrête."}}
+- Pour réinitialiser le cap, génère :
+  {{"type": "commande", "action": "resetYaw", "response": "Cap réinitialisé."}}"""
 
     @staticmethod
     def get_local_ip() -> str:
@@ -347,7 +367,7 @@ Règles :
         self.get_logger().info(f"Exécution : {json.dumps(payload, ensure_ascii=False)}")
 
         if action == "moveTo":
-            # Navigation autonome vers une station par marqueur ArUco.
+            # Navigation autonome vers une station (mission_node + graphe de waypoints).
             self.set_led("suspicious")
             dest_raw = payload.get("destination", "")
             station_key = self.DESTINATION_MAP.get(dest_raw, dest_raw.lower())
@@ -371,6 +391,15 @@ Règles :
             # Arrêt d'une navigation en cours.
             self.nav_stop()
             self.set_led("idle:neutral")
+
+        elif action == "resetYaw":
+            # Réinitialisation du cap (tare yaw) via firmware_node.
+            self.imu_tare()
+
+        elif action == "localize":
+            # Scan de localisation (rotation jusqu'à voir un marqueur).
+            self.set_led("suspicious")
+            self.localize()
 
         elif action == "moveForward":
             self.set_motor_timed(150, 0, payload.get("temps"))
@@ -449,6 +478,20 @@ def motor():
 def nav_stop():
     """Arrête immédiatement la navigation en cours."""
     node.nav_stop()
+    return jsonify({"ok": True})
+
+
+@app.route("/imu_tare", methods=["POST"])
+def imu_tare():
+    """Re-tare le cap (yaw) : le firmware refixe l'orientation courante à 0°."""
+    node.imu_tare()
+    return jsonify({"ok": True})
+
+
+@app.route("/localize", methods=["POST"])
+def localize():
+    """Déclenche un scan de localisation (rotation jusqu'à acquérir la pose)."""
+    node.localize()
     return jsonify({"ok": True})
 
 

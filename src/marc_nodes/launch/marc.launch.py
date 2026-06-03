@@ -109,6 +109,14 @@ def generate_launch_description():
         condition=IfCondition(use_vision),
     )
 
+    mission_node = Node(
+        package="marc_nodes",
+        executable="mission_node",
+        name="mission_node",
+        output="screen",
+        condition=IfCondition(use_vision),
+    )
+
     return LaunchDescription([
         port_arg,
         style_arg,
@@ -122,4 +130,5 @@ def generate_launch_description():
         camera_node,
         localization_node,
         navigation_node,
+        mission_node,
     ])

@@ -38,6 +38,8 @@ setup(
             'localization_node = marc_nodes.localization_node:main',
             # ros2 run marc_nodes navigation_node
             'navigation_node = marc_nodes.navigation_node:main',
+            # ros2 run marc_nodes mission_node
+            'mission_node = marc_nodes.mission_node:main',
         ],
     },
 )

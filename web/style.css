@@ -65,7 +65,8 @@ header {
 /* ── MAIN GRID ── */
 .main-grid {
   width: 100%; max-width: 980px;
-  display: grid; grid-template-columns: 1fr 272px; gap: 14px;
+  display: grid; grid-template-columns: 2.5fr 1fr; gap: 14px;
+  align-items: start;   /* les cartes gardent leur hauteur naturelle */
 }
 @media(max-width:700px){ .main-grid{ grid-template-columns:1fr; } }
 
@@ -90,7 +91,7 @@ header {
 }
 .camera-status.offline { color: var(--muted); animation: none; }
 .camera-feed {
-  position: relative; width: 100%; aspect-ratio: 4/3;
+  position: relative; width: 100%; aspect-ratio: 16/9;
   background: var(--bg2); border: 1px solid var(--border);
   border-radius: var(--radius); overflow: hidden;
   display: flex; align-items: center; justify-content: center;
@@ -153,23 +154,38 @@ header {
   color: var(--accent2); letter-spacing: 0.5px;
 }
 
-/* ── BOUTON STOP ── */
-.stop-btn {
-  display: flex; align-items: center; justify-content: center;
-  gap: 8px;
-  width: 100%; padding: 14px;
-  background: var(--danger);
-  color: white;
-  border: none; border-radius: var(--radius);
-  font-family: 'Inter', sans-serif;
-  font-size: 0.95rem; font-weight: 600;
-  letter-spacing: 1.5px;
-  cursor: pointer;
-  transition: background 0.15s, transform 0.05s;
-  box-shadow: 0 2px 8px rgba(232,68,90,0.3);
+/* ── ACTIONS (TARE + STOP) ── */
+.action-row {
+  display: flex; gap: 10px; margin-top: 2px;
+  justify-content: space-between;   /* espace égal entre les trois boutons */
 }
-.stop-btn:hover { background: #d63b50; }
-.stop-btn:active { transform: scale(0.98); }
+.action-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 11px 18px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.82rem; font-weight: 600;
+  letter-spacing: 1.2px;
+  cursor: pointer; user-select: none;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.18s, background 0.18s, color 0.18s, transform 0.05s;
+}
+.action-btn:active { transform: scale(0.98); }
+.action-btn svg { flex-shrink: 0; }
+
+/* TARE — teinte accent (bleu), assortie au reste de la page */
+.tare-btn { color: var(--accent); border-color: rgba(59,125,248,0.25); }
+.tare-btn:hover { background: var(--accent-dim); border-color: rgba(59,125,248,0.45); }
+
+/* LOCALISER — teinte accent2 (teal) */
+.locate-btn { color: var(--accent2); border-color: rgba(20,184,166,0.25); }
+.locate-btn:hover { background: var(--accent2-dim); border-color: rgba(20,184,166,0.45); }
+
+/* STOP — teinte danger en outline, plus de rouge plein */
+.stop-btn { color: var(--danger); border-color: rgba(232,68,90,0.3); }
+.stop-btn:hover { background: rgba(232,68,90,0.07); border-color: rgba(232,68,90,0.5); }
 
 
 /* ── CONTROLS PANEL ── */
@@ -182,7 +198,7 @@ header {
 /* Station cards */
 .station-card {
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 10px 13px; display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 13px; display: flex; align-items: center; justify-content: space-between;
   cursor: pointer; user-select: none;
   transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
   box-shadow: var(--shadow-sm);

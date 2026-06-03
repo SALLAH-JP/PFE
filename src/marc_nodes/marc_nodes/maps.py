@@ -1,77 +1,187 @@
 """
-maps.py — Carte unifiée des marqueurs ArUco de la salle robotique.
+maps.py — Carte de la salle robotique de MARC.
 
-Un seul endroit de vérité pour les positions des marqueurs fixes.
-Les nœuds qui consomment cette carte :
+Trois données, un seul endroit de vérité :
 
-  - localization_node  : utilise TOUS les marqueurs pour recaler la pose
-  - navigation_node    : utilise UNIQUEMENT ceux marqués is_obstacle=True
-                         pour la déviation latérale pendant les trajets
-  - webbridge_node     : mappe nom de station -> ID ArUco via STATIONS
+  LANDMARKS_MAP : marqueurs ArUco fixes (mur, plafond) → position (x, y).
+                  Consommé par localization_node pour recaler la pose.
 
-Convention d'IDs :
-  0-9   : marqueurs de localisation pure (au mur, plafond, etc.)
-  10-15 : stations (destinations) — nao, vector, pepper, imp3d, baxter, bras
-  50-99 : obstacles (meubles, machines) — servent aussi à la localisation
+  STATION_POS   : nom de station → position (x, y) de la station dans la salle.
+
+  WAYPOINTS/EDGES : graphe de points de passage sûrs. mission_node planifie sur
+                  ce graphe (Dijkstra) le chemin depuis la position courante de
+                  MARC jusqu'à la cible (station ou point libre).
 
 Repère salle :
-  origine = intersection de carreaux ; 0° = -Y ; +90° = +X ; sens trigo.
+  origine = intersection de carreaux choisie comme (0,0) ;
+  0° = -Y ; +90° = +X ; sens trigonométrique.
+
+⚠️ Les positions de stations et le graphe ci-dessous sont des EMPLACEMENTS
+À RENSEIGNER avec des mesures réelles (mètre ruban depuis l'origine). Tant
+qu'une valeur vaut None / le graphe est vide, mission_node le signale ou
+retombe sur un trajet direct au lieu d'inventer une trajectoire.
 """
 
+import heapq
+import math
+
 # ─────────────────────────────────────────────
-#  STATIONS — mapping nom -> ID ArUco
+#  MARQUEURS DE LOCALISATION (positions réelles connues)
 # ─────────────────────────────────────────────
-# Le webbridge utilise ça pour traduire "Pepper" -> ID 12, qui est ensuite
-# publié sur /nav_goal en mode ArUco.
-STATIONS = {
-    "nao":    0,
-    "vector": 11,
-    "pepper": 12,
-    "imp3d":  13,
-    "baxter": 2,
-    "bras":   4,
-}
-
-
-# Format : ID -> (x, y, is_obstacle)
-#   x, y           : position en mètres dans le repère salle
-#   is_obstacle    : True si MARC doit dévier en passant à proximité
-LANDMARKS_MAP = {
-    # ── Marqueurs de localisation pure (positions connues, au mur) ──
-    0:  (-2.07,  0.00,  False),
-    1:  (-2.08,  1.07,  False),
-    2:  ( 2.17,  1.05,  False),
-    3:  (-0.66,  2.45,  False),
-    4:  ( 2.17, -0.33,  False),
-    5:  ( 0.96, -3.39,  False),
-
-    # ── Stations (positions à mesurer une fois les ArUco posés) ──
-    # 10: ( ?,  ?, False),    # nao
-    # 11: ( ?,  ?, False),    # vector
-    # 12: ( ?,  ?, False),    # pepper
-    # 13: ( ?,  ?, False),    # imp3d
-    # 14: ( ?,  ?, False),    # baxter
-    # 15: ( ?,  ?, False),    # bras
-
-    # ── Obstacles (meubles, machines) — à compléter selon la salle ──
-    # 50: ( 1.20,  0.50,  True),    # Ex: table à côté de NAO
-    # 51: (-1.00, -2.00,  True),    # Ex: armoire
+# ID ArUco → (x, y) en mètres. Servent UNIQUEMENT à la localisation.
+LANDMARKS_MAP: dict[int, tuple[float, float]] = {
+    0: (-2.07,  0.00),
+    1: (-2.08,  1.07),
+    2: ( 2.17,  1.05),
+    3: (-0.66,  2.45),
+    4: ( 2.17, -0.33),
+    5: ( 0.96, -3.39),
 }
 
 
 # ─────────────────────────────────────────────
-#  Vues filtrées (helpers)
+#  STATIONS — position (x, y) de chaque destination
+# ─────────────────────────────────────────────
+# None = à mesurer. mission_node refuse un trajet vers une station sans position
+# NI parcours, plutôt que d'inventer des coordonnées.
+STATION_POS: dict[str, tuple[float, float] | None] = {
+    "nao":    None,   # TODO mesurer (x, y)
+    "vector": None,   # TODO
+    "pepper": None,   # TODO
+    "imp3d":  None,   # TODO
+    "baxter": None,   # TODO
+    "bras":   None,   # TODO
+}
+
+
+# ─────────────────────────────────────────────
+#  GRAPHE DE WAYPOINTS — chemins sûrs dans la salle
+# ─────────────────────────────────────────────
+# Au lieu de tracer un parcours figé par station, on définit un GRAPHE de points
+# de passage sûrs. mission_node planifie alors, depuis la position courante de
+# MARC, le plus court chemin (Dijkstra) jusqu'à la cible — station ou point libre.
+#
+#   WAYPOINTS : nom de nœud → position (x, y) d'un point de passage sûr.
+#   EDGES     : couples (nœud_a, nœud_b) reliés par un segment SANS obstacle.
+#               Bidirectionnel ; le coût est la distance euclidienne.
+#
+# Hypothèse : les nœuds sont assez denses pour que, depuis tout endroit
+# atteignable, le nœud le plus proche soit joignable en ligne droite sans
+# obstacle (idem entre un nœud et la station/point visé). C'est cette densité
+# qui garantit la sûreté des petits segments d'entrée et de sortie du graphe.
+#
+# ⚠️ À renseigner avec des positions réelles. Graphe vide → mission_node
+# retombe sur un trajet direct (ligne droite), sans garantie d'évitement.
+#
+# Exemple (valeurs fictives) :
+#   WAYPOINTS = {"home": (0.0, 0.0), "c1": (1.0, 0.0), "c2": (1.0, 1.0)}
+#   EDGES     = [("home", "c1"), ("c1", "c2")]
+WAYPOINTS: dict[str, tuple[float, float]] = {
+    # "home": (0.0, 0.0),   # TODO
+    # "c1":   (?,   ?),     # TODO
+}
+
+EDGES: list[tuple[str, str]] = [
+    # ("home", "c1"),       # TODO
+]
+
+
+# ─────────────────────────────────────────────
+#  CAP FINAL — orientation de MARC une fois arrivé à la station
+# ─────────────────────────────────────────────
+# Cap en degrés dans le repère salle (0° = -Y, +90° = +X, sens trigo), pour que
+# MARC fasse face au bon endroit en arrivant (présenter le robot, faire face au
+# visiteur…). None = pas d'orientation imposée (MARC s'arrête tel quel).
+STATION_HEADING: dict[str, float | None] = {
+    "nao":    None,   # TODO : cap final en degrés
+    "vector": None,   # TODO
+    "pepper": None,   # TODO
+    "imp3d":  None,   # TODO
+    "baxter": None,   # TODO
+    "bras":   None,   # TODO
+}
+
+
+# ─────────────────────────────────────────────
+#  Helpers
 # ─────────────────────────────────────────────
 def all_positions() -> dict[int, tuple[float, float]]:
-    """Tous les marqueurs avec leur (x, y) — pour localisation."""
-    return {mid: (x, y) for mid, (x, y, _) in LANDMARKS_MAP.items()}
+    """Tous les marqueurs de localisation (id → (x, y))."""
+    return dict(LANDMARKS_MAP)
 
 
-def obstacle_positions() -> dict[int, tuple[float, float]]:
-    """Uniquement les marqueurs d'obstacles — pour navigation."""
-    return {mid: (x, y) for mid, (x, y, is_obs) in LANDMARKS_MAP.items() if is_obs}
+def station_pos(name: str) -> tuple[float, float] | None:
+    """Position (x, y) d'une station, ou None si non renseignée/inconnue."""
+    return STATION_POS.get(name.lower())
 
 
-def station_id(name: str) -> int | None:
-    """Retourne l'ID ArUco d'une station, ou None si inconnue."""
-    return STATIONS.get(name.lower())
+def station_heading(name: str) -> float | None:
+    """Cap final (degrés) à adopter à l'arrivée, ou None si non imposé."""
+    return STATION_HEADING.get(name.lower())
+
+
+# ── Planification de chemin sur le graphe de waypoints ──
+def nearest_node(xy: tuple[float, float]) -> str | None:
+    """Nœud du graphe le plus proche d'un point (x, y)."""
+    if not WAYPOINTS:
+        return None
+    x, y = xy
+    return min(WAYPOINTS,
+               key=lambda n: (WAYPOINTS[n][0] - x) ** 2 + (WAYPOINTS[n][1] - y) ** 2)
+
+
+def _adjacency() -> dict[str, list[tuple[str, float]]]:
+    adj: dict[str, list[tuple[str, float]]] = {n: [] for n in WAYPOINTS}
+    for a, b in EDGES:
+        if a in WAYPOINTS and b in WAYPOINTS:
+            d = math.dist(WAYPOINTS[a], WAYPOINTS[b])
+            adj[a].append((b, d))
+            adj[b].append((a, d))
+    return adj
+
+
+def _dijkstra(adj, start: str, goal: str) -> list[str] | None:
+    dist = {start: 0.0}
+    prev: dict[str, str] = {}
+    pq = [(0.0, start)]
+    while pq:
+        d, u = heapq.heappop(pq)
+        if u == goal:
+            break
+        if d > dist.get(u, math.inf):
+            continue
+        for v, w in adj[u]:
+            nd = d + w
+            if nd < dist.get(v, math.inf):
+                dist[v] = nd
+                prev[v] = u
+                heapq.heappush(pq, (nd, v))
+    if goal not in dist:
+        return None
+    path = [goal]
+    while path[-1] != start:
+        path.append(prev[path[-1]])
+    path.reverse()
+    return path
+
+
+def plan_path(start_xy: tuple[float, float],
+              goal_xy: tuple[float, float]) -> list[tuple[float, float]] | None:
+    """Suite de positions (x, y) des nœuds, de l'entrée du graphe la plus proche
+    de start_xy jusqu'à la sortie la plus proche de goal_xy.
+
+    Retourne None si le graphe est vide ou si aucun chemin n'existe — l'appelant
+    retombe alors sur un trajet direct (ligne droite) vers goal_xy.
+    """
+    if not WAYPOINTS or not EDGES:
+        return None
+    entry = nearest_node(start_xy)
+    exit_ = nearest_node(goal_xy)
+    if entry is None or exit_ is None:
+        return None
+    if entry == exit_:
+        return [WAYPOINTS[entry]]
+    nodes = _dijkstra(_adjacency(), entry, exit_)
+    if nodes is None:
+        return None
+    return [WAYPOINTS[n] for n in nodes]

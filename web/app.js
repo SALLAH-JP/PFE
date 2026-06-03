@@ -49,6 +49,32 @@ async function stopNavigation() {
 
 
 // ══════════════════════════════════════════
+//  RÉINITIALISATION DU CAP (TARE YAW)
+// ══════════════════════════════════════════
+async function resetYaw() {
+  addLog('Réinitialisation du cap demandée', 'cmd');
+  try {
+    await fetch('/imu_tare', { method: 'POST' });
+  } catch {
+    addLog('Erreur envoi tare cap', 'err');
+  }
+}
+
+
+// ══════════════════════════════════════════
+//  LOCALISATION (SCAN PAR ROTATION)
+// ══════════════════════════════════════════
+async function localizeRobot() {
+  addLog('Localisation demandée', 'cmd');
+  try {
+    await fetch('/localize', { method: 'POST' });
+  } catch {
+    addLog('Erreur envoi localisation', 'err');
+  }
+}
+
+
+// ══════════════════════════════════════════
 //  STYLES STATIONS (highlight current / target)
 // ══════════════════════════════════════════
 const STATION_KEYS = ['nao', 'vector', 'pepper', 'imp3d', 'baxter', 'bras'];
@@ -278,21 +304,60 @@ updateStationStyles();
 // ══════════════════════════════════════════
 const CAMERA_HOST = window.CAMERA_HOST || `https://${window.location.hostname}:5001`;
 
-function initCamera() {
-  const feed = document.getElementById('cameraFeed');
-  if (feed) feed.src = `${CAMERA_HOST}/video`;
-  pollDetections();
+let cameraOnline = null;   // null = inconnu, pour forcer le 1er affichage
+
+// Met à jour la pastille + le placeholder, et reconnecte le flux au retour en ligne.
+function setCameraStatus(online) {
+  if (online === cameraOnline) return;   // pas de changement → rien à faire
+  const wasOffline = (cameraOnline !== true);
+  cameraOnline = online;
+
+  const statusEl = document.getElementById('cameraStatus');
+  const feed     = document.getElementById('cameraFeed');
+
+  if (online) {
+    if (statusEl) { statusEl.textContent = '● LIVE'; statusEl.classList.remove('offline'); }
+    if (feed) feed.classList.remove('cam-error');
+    // Le flux MJPEG ne se reconnecte pas seul après une coupure :
+    // on relance la source quand on repasse hors ligne → en ligne.
+    if (wasOffline && feed) feed.src = `${CAMERA_HOST}/video?t=${Date.now()}`;
+    addLog('Caméra en ligne', 'info');
+  } else {
+    if (statusEl) { statusEl.textContent = '● OFFLINE'; statusEl.classList.add('offline'); }
+    if (feed) feed.classList.add('cam-error');
+    addLog('Caméra hors ligne', 'err');
+  }
 }
 
-async function pollDetections() {
-  const statusEl = document.getElementById('cameraStatus');
-  const detEl    = document.getElementById('cameraDetections');
-  try {
-    const res  = await fetch(`${CAMERA_HOST}/detections`);
-    const data = await res.json();
-    if (statusEl) { statusEl.textContent = '● LIVE'; statusEl.classList.remove('offline'); }
+function initCamera() {
+  const feed = document.getElementById('cameraFeed');
+  if (feed) {
+    // Le flux lui-même est le signal le plus direct de l'état caméra.
+    feed.addEventListener('load',  () => setCameraStatus(true));
+    feed.addEventListener('error', () => setCameraStatus(false));
+    feed.src = `${CAMERA_HOST}/video?t=${Date.now()}`;
+  }
+  pollCamera();        // heartbeat + détections
+}
 
-    const ids = Object.keys(data);
+// Heartbeat caméra : un MJPEG figé ne déclenche pas 'error' côté <img>,
+// donc on sonde /health en parallèle pour détecter une coupure en cours de flux.
+async function pollCamera() {
+  const detEl = document.getElementById('cameraDetections');
+
+  // 1. État (heartbeat) via /health
+  try {
+    const h = await fetch(`${CAMERA_HOST}/health`, { cache: 'no-store' });
+    setCameraStatus(h.ok);
+  } catch {
+    setCameraStatus(false);
+  }
+
+  // 2. Détections ArUco (badges)
+  try {
+    const res  = await fetch(`${CAMERA_HOST}/detections`, { cache: 'no-store' });
+    const data = await res.json();
+    const ids  = Object.keys(data);
     if (ids.length === 0) {
       detEl.innerHTML = '<span class="cam-det-empty">Aucun marqueur détecté</span>';
     } else {
@@ -305,9 +370,10 @@ async function pollDetections() {
       }).join('');
     }
   } catch {
-    if (statusEl) { statusEl.textContent = '● OFFLINE'; statusEl.classList.add('offline'); }
+    detEl.innerHTML = '<span class="cam-det-empty">Aucun marqueur détecté</span>';
   }
-  setTimeout(pollDetections, 500);
+
+  setTimeout(pollCamera, 1000);
 }
 
 initCamera();
