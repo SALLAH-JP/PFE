@@ -88,6 +88,7 @@ class LocalizationNode(Node):
         positions = []
         for mid_str, data in self.detections.items():
             mid = int(mid_str)
+
             if mid not in MARKERS_MAP:
                 continue
             d = data.get("distance")

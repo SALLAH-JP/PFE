@@ -304,12 +304,13 @@ updateStationStyles();
 // ══════════════════════════════════════════
 const CAMERA_HOST = window.CAMERA_HOST || `https://${window.location.hostname}:5001`;
 
-let cameraOnline = null;   // null = inconnu, pour forcer le 1er affichage
+let cameraOnline    = null;   // null = inconnu, pour forcer le 1er affichage
+let healthFailCount = 0;      // /health doit échouer plusieurs fois d'affilée
+                              //   avant qu'on déclare OFFLINE (anti-blip)
 
-// Met à jour la pastille + le placeholder, et reconnecte le flux au retour en ligne.
+// Met à jour UNIQUEMENT la pastille et le placeholder. Ne touche JAMAIS à feed.src.
 function setCameraStatus(online) {
-  if (online === cameraOnline) return;   // pas de changement → rien à faire
-  const wasOffline = (cameraOnline !== true);
+  if (online === cameraOnline) return;
   cameraOnline = online;
 
   const statusEl = document.getElementById('cameraStatus');
@@ -318,9 +319,6 @@ function setCameraStatus(online) {
   if (online) {
     if (statusEl) { statusEl.textContent = '● LIVE'; statusEl.classList.remove('offline'); }
     if (feed) feed.classList.remove('cam-error');
-    // Le flux MJPEG ne se reconnecte pas seul après une coupure :
-    // on relance la source quand on repasse hors ligne → en ligne.
-    if (wasOffline && feed) feed.src = `${CAMERA_HOST}/video?t=${Date.now()}`;
     addLog('Caméra en ligne', 'info');
   } else {
     if (statusEl) { statusEl.textContent = '● OFFLINE'; statusEl.classList.add('offline'); }
@@ -329,31 +327,50 @@ function setCameraStatus(online) {
   }
 }
 
+function reconnectFeed() {
+  const feed = document.getElementById('cameraFeed');
+  if (feed) feed.src = `${CAMERA_HOST}/video?t=${Date.now()}`;
+}
+
 function initCamera() {
   const feed = document.getElementById('cameraFeed');
   if (feed) {
-    // Le flux lui-même est le signal le plus direct de l'état caméra.
+    // Le flux lui-même est le seul signal qui PEUT relancer le src.
     feed.addEventListener('load',  () => setCameraStatus(true));
-    feed.addEventListener('error', () => setCameraStatus(false));
-    feed.src = `${CAMERA_HOST}/video?t=${Date.now()}`;
+    feed.addEventListener('error', () => {
+      setCameraStatus(false);
+      // Vraie panne du flux : on retente une fois après 2 s
+      setTimeout(() => { if (cameraOnline === false) reconnectFeed(); }, 2000);
+    });
+    reconnectFeed();
   }
-  pollCamera();        // heartbeat + détections
+  pollCamera();
 }
 
-// Heartbeat caméra : un MJPEG figé ne déclenche pas 'error' côté <img>,
-// donc on sonde /health en parallèle pour détecter une coupure en cours de flux.
+// Heartbeat : /health met à jour la pastille seulement après plusieurs
+// échecs consécutifs, et ne touche JAMAIS feed.src (qui aurait pour effet
+// de couper un flux MJPEG vivant à chaque blip réseau).
 async function pollCamera() {
-  const detEl = document.getElementById('cameraDetections');
-
-  // 1. État (heartbeat) via /health
+  let healthOk = false;
   try {
     const h = await fetch(`${CAMERA_HOST}/health`, { cache: 'no-store' });
-    setCameraStatus(h.ok);
-  } catch {
-    setCameraStatus(false);
+    healthOk = h.ok;
+  } catch { /* ignoré */ }
+
+  if (healthOk) {
+    const wasOffline = (cameraOnline === false);
+    healthFailCount = 0;
+    setCameraStatus(true);
+    // Le serveur vient de revenir après une vraie panne → on relance le flux
+    // (qui est probablement figé sur sa dernière trame).
+    if (wasOffline) reconnectFeed();
+  } else {
+    healthFailCount++;
+    if (healthFailCount >= 3) setCameraStatus(false);
   }
 
-  // 2. Détections ArUco (badges)
+  // Détections ArUco (badges)
+  const detEl = document.getElementById('cameraDetections');
   try {
     const res  = await fetch(`${CAMERA_HOST}/detections`, { cache: 'no-store' });
     const data = await res.json();

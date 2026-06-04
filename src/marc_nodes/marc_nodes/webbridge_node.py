@@ -65,7 +65,7 @@ from marc_nodes.maps import STATION_POS
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 # remonte de src/marc_nodes/marc_nodes/ -> racine MARC/
 # (override par MARC_ROOT car colcon installe les fichiers ailleurs)
-ROOT = os.environ.get("MARC_ROOT") or os.path.abspath(os.path.join(THIS_DIR, "..", "..", ".."))
+ROOT = "/home/pi/MARC/"
 WEB_DIR = os.path.join(ROOT, "web")
 GIF_DIR = os.path.join(ROOT, "matrixLed")
 

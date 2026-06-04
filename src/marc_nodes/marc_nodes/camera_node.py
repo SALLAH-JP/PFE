@@ -162,6 +162,18 @@ def camera_loop(logger):
 flask_app = Flask(__name__)
 
 
+# La page est servie sur le port 5000 (webbridge), et appelle camera_node
+# sur le 5001 : c'est une origine différente pour le navigateur. Sans cet
+# en-tête, fetch('/health') et fetch('/detections') sont bloqués par CORS
+# (l'<img> du flux MJPEG, lui, n'est pas concerné).
+@flask_app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @flask_app.route("/video")
 def video():
     def gen():

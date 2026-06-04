@@ -45,12 +45,12 @@ LANDMARKS_MAP: dict[int, tuple[float, float]] = {
 # None = à mesurer. mission_node refuse un trajet vers une station sans position
 # NI parcours, plutôt que d'inventer des coordonnées.
 STATION_POS: dict[str, tuple[float, float] | None] = {
-    "nao":    None,   # TODO mesurer (x, y)
-    "vector": None,   # TODO
+    "nao":    (-1.6, 0),
+    "vector": (-1.5, 4.9),
     "pepper": None,   # TODO
     "imp3d":  None,   # TODO
-    "baxter": None,   # TODO
-    "bras":   None,   # TODO
+    "baxter": (1.8, 1.8),
+    "bras":   (1.8, -0.6),
 }
 
 
@@ -77,12 +77,30 @@ STATION_POS: dict[str, tuple[float, float] | None] = {
 #   WAYPOINTS = {"home": (0.0, 0.0), "c1": (1.0, 0.0), "c2": (1.0, 1.0)}
 #   EDGES     = [("home", "c1"), ("c1", "c2")]
 WAYPOINTS: dict[str, tuple[float, float]] = {
-    # "home": (0.0, 0.0),   # TODO
-    # "c1":   (?,   ?),     # TODO
+    "origin": (0.0, 0.0),
+    "B":   (-1.2,   0),
+    "C":   (0.9, -0.6),
+    "D":   (0, -1.2),
+    "E":   (-1.2, -2.4),
+    "F":   (1.2, -2),
+    "G":   (0, 1.2),
+    "H":   (0.3, 2.4),
+    "I":   (0, 3.6),
 }
 
 EDGES: list[tuple[str, str]] = [
-    # ("home", "c1"),       # TODO
+    ("origin", "B"),
+    ("origin", "D"),
+    ("origin", "C"),
+    ("origin", "G"),
+    ("D", "B"),
+    ("G", "B"),
+    ("D", "C"),
+    ("G", "C"),
+    ("D", "E"),
+    ("D", "F"),
+    ("H", "G"),
+    ("I", "H"),
 ]
 
 
@@ -93,12 +111,12 @@ EDGES: list[tuple[str, str]] = [
 # MARC fasse face au bon endroit en arrivant (présenter le robot, faire face au
 # visiteur…). None = pas d'orientation imposée (MARC s'arrête tel quel).
 STATION_HEADING: dict[str, float | None] = {
-    "nao":    None,   # TODO : cap final en degrés
-    "vector": None,   # TODO
-    "pepper": None,   # TODO
-    "imp3d":  None,   # TODO
-    "baxter": None,   # TODO
-    "bras":   None,   # TODO
+    "nao":    90,
+    "vector": 30,
+    "pepper": None,
+    "imp3d":  None,
+    "baxter": 90,
+    "bras":   -90,
 }
 
 
