@@ -185,10 +185,9 @@ async function sendAudioToServer(mimeType) {
       document.getElementById('userText').textContent = data.transcript;
       addLog(`Transcription : "${data.transcript}"`, 'info');
     }
-    if (data.ai_reply) {
-      document.getElementById('aiReply').textContent = data.ai_reply;
-      addLog(`MARC : ${data.ai_reply.slice(0, 80)}`, 'info');
-    }
+    // L'affichage progressif et le journal de la réponse de MARC sont gérés
+    // en flux via SSE ('speech'). Filet de sécurité d'affichage seulement.
+    if (data.ai_reply) document.getElementById('aiReply').textContent = data.ai_reply;
     if (data.robot_state) applyRobotState(data.robot_state);
   } catch {
     addLog('Erreur transcription serveur', 'err');
@@ -231,6 +230,7 @@ document.getElementById('logClear').addEventListener('click', () => {
 // ══════════════════════════════════════════
 let eventSource  = null;
 let sseConnected = false;
+let speechBuffer = '';   // accumule les phrases de MARC reçues en flux (SSE)
 
 function connectSSE() {
   if (eventSource) eventSource.close();
@@ -254,13 +254,30 @@ function connectSSE() {
     try { applyPose(JSON.parse(e.data)); } catch {}
   });
 
-  // MARC vient de prononcer une phrase
+  // Début d'un nouvel énoncé de MARC (flux) → on réinitialise l'affichage
+  eventSource.addEventListener('speech_start', () => {
+    speechBuffer = '';
+    document.getElementById('aiReply').textContent = '';
+  });
+
+  // MARC prononce une phrase. En flux : { text, partial:true } pour chaque
+  // phrase, puis { text:<complet>, done:true } à la fin. Mono-bloc : { text }.
   eventSource.addEventListener('speech', (e) => {
     try {
-      const { text } = JSON.parse(e.data);
-      if (text) {
-        document.getElementById('aiReply').textContent = text;
-        addLog(`MARC : ${text.slice(0, 80)}`, 'info');
+      const d = JSON.parse(e.data);
+      if (!d.text && !d.done) return;
+
+      if (d.partial) {
+        // Phrase intermédiaire : on l'ajoute au fur et à mesure
+        speechBuffer += (speechBuffer ? ' ' : '') + d.text;
+        document.getElementById('aiReply').textContent = speechBuffer;
+      } else {
+        // Énoncé complet (fin de flux ou message mono-bloc) :
+        // filet de sécurité d'affichage + une seule entrée de journal
+        const full = d.text || speechBuffer;
+        document.getElementById('aiReply').textContent = full;
+        if (full) addLog(`MARC : ${full.slice(0, 80)}`, 'info');
+        speechBuffer = '';
       }
     } catch {}
   });

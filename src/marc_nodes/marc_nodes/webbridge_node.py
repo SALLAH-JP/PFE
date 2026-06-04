@@ -71,7 +71,7 @@ GIF_DIR = os.path.join(ROOT, "matrixLed")
 
 sys.path.append(os.path.join(ROOT, "assistantVocale"))
 
-from voiceAssistant import speak, ask_ollama, recognizer  # noqa: E402
+from voiceAssistant import speak, ask_ollama, ask_ollama_stream, TTSPlayer, recognizer  # noqa: E402
 
 # La matrice LED n'est PLUS pilotée ici : elle appartient à led_node.
 # Le webbridge publie des expressions sur /led_expression (voir set_led).
@@ -109,6 +109,11 @@ class WebBridgeNode(Node):
         # ── SSE ──
         self.sse_clients: list[queue.Queue] = []
         self.sse_lock = threading.Lock()
+
+        # ── TTS en flux ──
+        # Lecteur vocal partagé : file FIFO, synthèse edge-tts streamée vers
+        # mpg123 (un seul chemin audio sur le haut-parleur du Pi).
+        self.tts_player = TTSPlayer()
 
         # ── Publishers ROS2 ──
         # /cmd_motor pour le pilotage manuel (route /motor de Flask).
@@ -254,7 +259,7 @@ class WebBridgeNode(Node):
             self.robot_state["mode"]   = "idle"
             self.broadcast_log(f"Cible {target} introuvable", "err")
             self.tts("Je n'ai pas trouvé la destination.")
-            self.set_led("cry")
+            self.set_led("sad")
         elif event == "cancelled":
             self.robot_state["target"] = None
             self.robot_state["mode"]   = "idle"
@@ -314,9 +319,39 @@ class WebBridgeNode(Node):
     #  TTS / LED
     # ─────────────────────────────────────────
     def tts(self, text: str):
+        """Énoncé court mono-bloc (ex. « Je n'ai pas compris »)."""
         self.set_led("neutral")
         self.broadcast_speech(text)
-        threading.Thread(target=speak, args=(text,), daemon=True).start()
+        self.tts_player.say(text)
+
+    def speak_and_act_streaming(self, user_text: str, extra_context: str = "") -> dict:
+        """
+        Pipeline web EN FLUX.
+
+        Interroge le LLM en streaming : chaque phrase est, dès qu'elle est
+        prête, (1) prononcée par MARC sur le haut-parleur du Pi (tts_player)
+        et (2) poussée au navigateur en temps réel via SSE (affichage
+        progressif). L'éventuelle commande est exécutée à la fin, une fois le
+        JSON complet reçu. Retourne le dict LLM complet (sans la clé "_spoke").
+        """
+        self.set_led("neutral")
+        self.broadcast("speech_start", {})
+
+        def on_sentence(sentence: str):
+            self.tts_player.say(sentence)                                # Pi parle
+            self.broadcast("speech", {"text": sentence, "partial": True})  # navigateur
+
+        result = ask_ollama_stream(user_text, on_sentence, extra_context=extra_context)
+        result.pop("_spoke", None)
+
+        ai_reply = result.get("response", "")
+
+        if result.get("type") == "commande" and result.get("action"):
+            self.execute_action(result)
+
+        # Fin de l'énoncé : texte complet (journal + filet de sécurité d'affichage)
+        self.broadcast("speech", {"text": ai_reply, "partial": False, "done": True})
+        return result
 
     def clear_matrix(self):
         # La matrice appartient à led_node ; on lui demande l'état neutre.
@@ -557,17 +592,19 @@ def command():
     destination = data.get("destination")
     if not destination:
         return jsonify({"error": "destination manquante"}), 400
-    web_to_llm = {v: k for k, v in node.DESTINATION_MAP.items()}
-    dest_name = web_to_llm.get(destination, destination)
-    llm_result = ask_ollama(
-        f"Je dois me déplacer vers {dest_name}. Confirme brièvement.",
-        extra_context=node.build_extra_context()
-    )
-    ai_reply = (llm_result.get("response", f"Je me dirige vers {dest_name}.")
-                if llm_result else f"Je me dirige vers {dest_name}.")
-    if llm_result and llm_result.get("type") == "commande":
-        node.execute_action(llm_result)
+
+    STATION_LABELS = {
+        "base": "la base", "nao": "NAO", "vector": "Vector", "pepper": "Pepper",
+        "imp3d": "l'imprimante 3D", "baxter": "Baxter", "bras": "le bras robotique",
+    }
+    label = STATION_LABELS.get(destination, destination)
+
+    # Exécution DIRECTE — clic station : on ne passe plus par le LLM
+    node.execute_action({"action": "moveTo", "destination": destination})
+
+    ai_reply = f"Je me dirige vers {label}."   # confirmation vocale fixe
     node.tts(ai_reply)
+
     return jsonify({"robot_state": node.full_state(), "ai_reply": ai_reply})
 
 
@@ -575,13 +612,9 @@ def command():
 def send_text():
     data = request.get_json()
     user_text = data.get("user_text", "")
-    llm_result = ask_ollama(user_text, extra_context=node.build_extra_context())
-    if not llm_result:
-        return jsonify({"error": "LLM indisponible"}), 503
+    # LLM + TTS en flux (parle + affiche pendant la génération, exécute à la fin)
+    llm_result = node.speak_and_act_streaming(user_text, extra_context=node.build_extra_context())
     ai_reply = llm_result.get("response", "")
-    if llm_result.get("type") == "commande" and llm_result.get("action"):
-        node.execute_action(llm_result)
-    node.tts(ai_reply)
     return jsonify({"ai_reply": ai_reply, "robot_state": node.full_state()})
 
 
@@ -636,16 +669,11 @@ def transcribe():
             pass
     if not transcript:
         node.tts("Je n'ai pas compris.")
-        node.set_led("cry")
+        node.set_led("sad")
         return jsonify({"transcript": "", "ai_reply": "Je n'ai pas compris.",
                         "robot_state": node.full_state()})
-    llm_result = ask_ollama(transcript, extra_context=node.build_extra_context())
-    if not llm_result:
-        return jsonify({"error": "LLM indisponible"}), 503
+    llm_result = node.speak_and_act_streaming(transcript, extra_context=node.build_extra_context())
     ai_reply = llm_result.get("response", "")
-    if llm_result.get("type") == "commande" and llm_result.get("action"):
-        node.execute_action(llm_result)
-    node.tts(ai_reply)
     return jsonify({"transcript": transcript, "ai_reply": ai_reply,
                     "robot_state": node.full_state()})
 

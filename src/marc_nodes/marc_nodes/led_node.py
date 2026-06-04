@@ -10,7 +10,7 @@ d'accéder directement au matériel — ça évite les conflits d'accès GPIO.
     /led_expression   std_msgs/String
 
 Protocole du message (String) :
-    "love" | "neutral" | "suspicious" | "cry" | "blink" | "disappear"
+    "love" | "neutral" | "suspicious" | "sad" | "blink" | "disappear"
                                   → joue l'animation une fois
     "idle:neutral"                → change l'animation idle de base
     "style:2"                     → change le style (recharge les GIFs)
@@ -51,7 +51,7 @@ except ImportError:
 
 
 # Animations connues (doivent correspondre aux clés d'EyeManager.ANIMATIONS)
-KNOWN_ANIMATIONS = {"neutral", "blink", "suspicious", "disappear", "cry", "love"}
+KNOWN_ANIMATIONS = {"neutral", "blink", "suspicious", "disappear", "sad", "love"}
 
 
 class LedNode(Node):

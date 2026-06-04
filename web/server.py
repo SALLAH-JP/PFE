@@ -19,7 +19,7 @@ from flask import Flask, request, jsonify, send_from_directory, Response
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(os.path.join(ROOT, "assistantVocale"))
 sys.path.append(os.path.join(ROOT, "matrixLed"))
-from voiceAssistant import speak, ask_ollama, recognizer
+from voiceAssistant import speak, ask_ollama, ask_ollama_stream, TTSPlayer, recognizer
 
 # ── Matrix LED (optionnel) ──
 try:
@@ -294,10 +294,48 @@ def send_mode(enabled: bool):
 
 TMP_DIR = tempfile.gettempdir()
 
+# Lecteur vocal EN FLUX partagé : un seul chemin audio (haut-parleur du Pi),
+# file FIFO, synthèse edge-tts streamée vers mpg123.
+web_tts = TTSPlayer()
+
+
 def tts(text: str) -> None:
+    """Énoncé court mono-bloc (ex. « Je n'ai pas compris »)."""
     if eyes: eyes.play("neutral")
     broadcast_speech(text)
-    threading.Thread(target=speak, args=(text,), daemon=True).start()
+    web_tts.say(text)
+
+
+def speak_and_act_streaming(user_text: str, extra_context: str = "") -> dict:
+    """
+    Pipeline web EN FLUX.
+
+    Interroge le LLM en streaming : chaque phrase est, dès qu'elle est prête,
+    (1) prononcée par MARC sur le haut-parleur du Pi (web_tts) et
+    (2) poussée au navigateur en temps réel via SSE (affichage progressif).
+    L'éventuelle commande est exécutée à la fin, une fois le JSON complet reçu.
+
+    Retourne le dict LLM complet (sans la clé interne "_spoke").
+    """
+    if eyes: eyes.play("neutral")
+    broadcast("speech_start", {})
+
+    def on_sentence(sentence: str) -> None:
+        web_tts.say(sentence)                                   # Pi parle (en flux)
+        broadcast("speech", {"text": sentence, "partial": True})  # navigateur
+
+    result = ask_ollama_stream(user_text, on_sentence, extra_context=extra_context)
+    result.pop("_spoke", None)
+
+    ai_reply = result.get("response", "")
+
+    # Exécution de l'action après réception du JSON complet
+    if result.get("type") == "commande" and result.get("action"):
+        execute_action(result)
+
+    # Fin de l'énoncé : texte complet pour le journal + filet de sécurité d'affichage
+    broadcast("speech", {"text": ai_reply, "partial": False, "done": True})
+    return result
 
 
 # ─────────────────────────────────────────────
@@ -561,29 +599,26 @@ def command():
     if not destination:
         return jsonify({"error": "destination manquante"}), 400
 
-    web_to_llm = {v: k for k, v in DESTINATION_MAP.items()}
-    dest_name  = web_to_llm.get(destination, destination)
+    # Libellé lisible pour la confirmation parlée
+    STATION_LABELS = {
+        "base":   "la base",
+        "nao":    "NAO",
+        "vector": "Vector",
+        "pepper": "Pepper",
+        "imp3d":  "l'imprimante 3D",
+        "baxter": "Baxter",
+        "bras":   "le bras robotique",
+    }
+    label = STATION_LABELS.get(destination, destination)
 
-    llm_result = ask_ollama(
-        f"Je dois me déplacer vers {dest_name}. Confirme brièvement.",
-        extra_context=build_extra_context()
-    )
+    # Exécution DIRECTE — clic station : on ne passe plus par le LLM
+    execute_action({"action": "moveTo", "destination": destination})
 
-    ai_reply = (
-        llm_result.get("response", f"Je me dirige vers {dest_name}.")
-        if llm_result else f"Je me dirige vers {dest_name}."
-    )
-
-    # ← N'exécute l'action QUE si le LLM génère une commande
-    if llm_result and llm_result.get("type") == "commande":
-        execute_action(llm_result)
-
+    # Confirmation vocale fixe
+    ai_reply = f"Je me dirige vers {label}."
     tts(ai_reply)
 
-    return jsonify({
-        "robot_state": full_state(),
-        "ai_reply":    ai_reply,
-    })
+    return jsonify({"robot_state": full_state(), "ai_reply": ai_reply})
 
 
 # ─────────────────────────────────────────────
@@ -614,17 +649,9 @@ def send_text():
     data      = request.get_json()
     user_text = data.get("user_text", "")
 
-    llm_result = ask_ollama(user_text, extra_context=build_extra_context())
-    if not llm_result:
-        return jsonify({"error": "LLM indisponible"}), 503
-
-    ai_reply = llm_result.get("response", "")
-    action   = llm_result.get("action")
-
-    if llm_result.get("type") == "commande" and action:
-        execute_action(llm_result)
-
-    tts(ai_reply)
+    # LLM + TTS en flux (parle + affiche pendant la génération, exécute à la fin)
+    llm_result = speak_and_act_streaming(user_text, extra_context=build_extra_context())
+    ai_reply   = llm_result.get("response", "")
 
     return jsonify({
         "ai_reply":    ai_reply,
@@ -688,7 +715,7 @@ def transcribe():
         except: pass
 
     if not transcript:
-        gif_path = os.path.join(GIF_DIR, f"style{style}", "cry.gif")
+        gif_path = os.path.join(GIF_DIR, f"style{style}", "sad.gif")
         show_gif(gif_path)
         tts("Je n'ai pas compris.")
         return jsonify({
@@ -697,17 +724,9 @@ def transcribe():
             "robot_state": full_state(),
         })
 
-    llm_result = ask_ollama(transcript, extra_context=build_extra_context())
-    if not llm_result:
-        return jsonify({"error": "LLM indisponible"}), 503
-
-    ai_reply = llm_result.get("response", "")
-    action   = llm_result.get("action")
-
-    if llm_result.get("type") == "commande" and action:
-        execute_action(llm_result)
-
-    tts(ai_reply)
+    # LLM + TTS en flux (parle + affiche pendant la génération, exécute à la fin)
+    llm_result = speak_and_act_streaming(transcript, extra_context=build_extra_context())
+    ai_reply   = llm_result.get("response", "")
 
     return jsonify({
         "transcript":  transcript,

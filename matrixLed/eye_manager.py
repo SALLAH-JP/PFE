@@ -34,7 +34,7 @@ ANIMATIONS = {
     "blink":      "blink.gif",
     "suspicious": "suspicious.gif",
     "disappear":  "disappear.gif",
-    "cry":        "cry.gif",
+    "sad":        "sad.gif",
     "love":       "love.gif",
 }
 
