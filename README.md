@@ -32,7 +32,11 @@
 
 ### Partie 2 — Démonstration *(à venir)*
 
-> 🎬 Navigation autonome, interaction vocale et expressions de MARC en action dans le laboratoire. *(lien à ajouter)*
+<div align="center">
+<img src="assets/images/marc.gif" alt="MARC dans le laboratoire" width="500"/>
+<br/>
+<i>MARC dans sa version actuelle — démonstration vidéo à venir</i>
+</div>
 
 ---
 

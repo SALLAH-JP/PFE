@@ -590,7 +590,7 @@ def vocal_command():
 # ─────────────────────────────────────────────
 #  ROUTE : Commande depuis l'interface web (clic)
 # ─────────────────────────────────────────────
-@app.route("/command", methods=["POST"])
+
 @app.route("/command", methods=["POST"])
 def command():
     data        = request.get_json()
