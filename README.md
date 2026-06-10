@@ -137,7 +137,7 @@ L'intégralité de la mécanique de MARC a été **modélisée sur Onshape** pui
 
 ### 🔗 Visualisation interactive
 
-👉 **[Voir le modèle 3D complet sur Onshape](https://cad.onshape.com/documents/bc8d4e2fc1fa99c54b0ae445/w/f22cc56c4e97ab29b572a8dc/e/e2a230c46f8ff9770799be93?renderMode=0&uiState=6a234b71ce6fba4c867a8832)**
+👉 **[Voir le modèle 3D complet sur Onshape](https://cad.onshape.com/documents/bc8d4e2fc1fa99c54b0ae445/w/f22cc56c4e97ab29b572a8dc/e/e2a230c46f8ff9770799be93?renderMode=0&uiState=6a28ee02e73cdff89af00a0e)**
 
 ### 📦 Fichiers 3D disponibles
 
