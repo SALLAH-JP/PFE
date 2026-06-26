@@ -22,7 +22,7 @@
 
 ## 📺 Vidéos
 
-### Partie 1 — Construction *(disponible)*
+### Partie 1 — Construction
 
 > 🎬 **[▶️ MARC — Construction d'un robot compagnon (Partie 1)](https://www.youtube.com/watch?v=X_8uBchsi5A)**
 
@@ -30,13 +30,14 @@
 
 *La construction du robot, de la mécanique à l'électronique.*
 
-### Partie 2 — Démonstration *(à venir)*
+### Partie 2 — Démonstration
 
-<div align="center">
-<img src="assets/images/marc.gif" alt="MARC dans le laboratoire" width="500"/>
-<br/>
-<i>MARC dans sa version actuelle — démonstration vidéo à venir</i>
-</div>
+> 🎬 **[▶️ MARC — Construction d'un robot compagnon (Partie 2)](https://youtu.be/alAyJaFMgWw)**
+
+[![MARC — Démonstration](https://img.youtube.com/vi/alAyJaFMgWw/maxresdefault.jpg)](https://youtu.be/alAyJaFMgWw)
+
+*L'impression 3D, l'assemblage final et la première démonstration de MARC en action.*
+
 
 ---
 
