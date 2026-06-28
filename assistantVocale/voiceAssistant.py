@@ -9,29 +9,32 @@ Pipeline vocal EN FLUX (streaming) :
 
 MARC commence à parler AVANT que le LLM ait fini de générer, et la synthèse
 vocale démarre avant la fin de chaque phrase : la latence perçue chute fortement.
+
+Version procédurale (sans classes) :
+  - speak(text, wait=False) : seule API TTS (file FIFO + mpg123 persistant).
+  - ask_ollama_stream(...)  : streaming JSON avec extraction au vol de "response",
+                              état local (sans classe ResponseStreamer).
+  - Le markdown (**, _, `…) est nettoyé avant d'être prononcé.
 """
 
-import urllib3
+import os
+import re
 import json
 import time
-import requests
+import queue
+import asyncio
+import threading
 import subprocess
 import tempfile
-import os
+import urllib3
+import requests
+import edge_tts
 import speech_recognition as sr
 from gtts import gTTS
 from pathlib import Path
 
-import re
-import queue
-import asyncio
-import threading
-import edge_tts
-
-
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
 
 
 # ─────────────────────────────────────────────
@@ -48,11 +51,117 @@ BASE_DIR = Path(__file__).parent
 with open(BASE_DIR / "modelfile.txt", "r", encoding="utf-8") as f:
     SYSTEM_PROMPT = f.read()
 
+TTS_VOICE = "fr-FR-HenriNeural"
+
+
 # ─────────────────────────────────────────────
-#  ÉTATS
+#  ÉTATS (utilisés par main() et voice_node)
 # ─────────────────────────────────────────────
 STATE_IDLE   = "idle"
 STATE_ACTIVE = "active"
+
+
+# ═════════════════════════════════════════════
+#  TTS EN FLUX — procédural, mpg123 persistant
+#  Un seul process mpg123 dont on garde stdin ouvert : tous les chunks
+#  MP3 successifs s'enchaînent → pas de coupure entre les phrases.
+# ═════════════════════════════════════════════
+
+# File des textes à prononcer (FIFO)
+_tts_queue: "queue.Queue[str]" = queue.Queue()
+
+# Process mpg123 unique
+_mpg123_proc: subprocess.Popen | None = None
+_mpg123_lock = threading.Lock()
+
+# Markdown courant à virer avant TTS (sinon edge-tts lit les astérisques)
+_MD_PATTERNS = [
+    (re.compile(r"\*\*(.+?)\*\*"),               r"\1"),  # **gras**
+    (re.compile(r"__(.+?)__"),                   r"\1"),  # __gras__
+    (re.compile(r"\*(.+?)\*"),                   r"\1"),  # *italique*
+    (re.compile(r"(?<!\w)_(.+?)_(?!\w)"),        r"\1"),  # _italique_
+    (re.compile(r"`(.+?)`"),                     r"\1"),  # `code`
+    (re.compile(r"~~(.+?)~~"),                   r"\1"),  # ~~barré~~
+    (re.compile(r"^#+\s*", re.M),                ""),     # # titres
+]
+
+
+def _strip_markdown(text: str) -> str:
+    if not text:
+        return ""
+    for pat, repl in _MD_PATTERNS:
+        text = pat.sub(repl, text)
+    return text
+
+
+def _get_mpg123() -> subprocess.Popen:
+    """Renvoie le mpg123 unique. Le (re)lance s'il est mort."""
+    global _mpg123_proc
+    with _mpg123_lock:
+        if _mpg123_proc is None or _mpg123_proc.poll() is not None:
+            _mpg123_proc = subprocess.Popen(
+                ["mpg123", "-q", "-"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        return _mpg123_proc
+
+
+async def _synthesize_to_mpg123(text: str) -> None:
+    """edge-tts en flux → écrit les chunks MP3 dans le stdin du mpg123 unique."""
+    proc = _get_mpg123()
+    communicate = edge_tts.Communicate(text, TTS_VOICE)
+    async for chunk in communicate.stream():
+        if chunk.get("type") != "audio":
+            continue
+        data = chunk.get("data")
+        if not data:
+            continue
+        try:
+            proc.stdin.write(data)
+            proc.stdin.flush()
+        except (BrokenPipeError, OSError):
+            # mpg123 est mort → on le relance et on retente une fois
+            with _mpg123_lock:
+                global _mpg123_proc
+                _mpg123_proc = None
+            proc = _get_mpg123()
+            try:
+                proc.stdin.write(data)
+                proc.stdin.flush()
+            except Exception:
+                return
+
+
+def _tts_worker() -> None:
+    """Consomme la file en série, une phrase à la fois."""
+    while True:
+        text = _tts_queue.get()
+        try:
+            asyncio.run(_synthesize_to_mpg123(text))
+        except Exception as e:
+            print(f"⚠️  TTS erreur : {e}")
+        finally:
+            _tts_queue.task_done()
+
+
+# Démarre le worker une fois pour toutes, à l'import du module
+threading.Thread(target=_tts_worker, daemon=True).start()
+
+
+def speak(text: str, wait: bool = False) -> None:
+    """
+    Enfile un texte à prononcer. Le markdown est nettoyé automatiquement.
+    Si wait=True, bloque jusqu'à la fin de la prononciation (utile avant
+    de réécouter au micro pour éviter d'entendre la voix de MARC).
+    """
+    text = _strip_markdown((text or "").strip())
+    if text:
+        _tts_queue.put(text)
+    if wait:
+        _tts_queue.join()
+
 
 # ─────────────────────────────────────────────
 #  INITIALISATION STT
@@ -60,6 +169,7 @@ STATE_ACTIVE = "active"
 recognizer = sr.Recognizer()
 recognizer.dynamic_energy_threshold = True
 recognizer.pause_threshold = 0.5
+
 
 def calibrate_mic():
     try:
@@ -90,73 +200,19 @@ def listen_once() -> str | None:
 
 
 # ─────────────────────────────────────────────
-#  LLM — Ollama (JSON strict)
+#  Historique de conversation partagé
 # ─────────────────────────────────────────────
 conversation_history: list[dict] = []
 
-def ask_ollama2(user_text: str, extra_context: str = "") -> dict | None:
-    """
-    Envoie le texte à Ollama et retourne le JSON parsé.
-    Retourne None en cas d'erreur.
-    """
 
-    system = SYSTEM_PROMPT
-    if extra_context:
-        system = SYSTEM_PROMPT + "\n\n---\n\n" + extra_context
-
-    conversation_history.append({"role": "user", "content": user_text})
-    messages = [{"role": "system", "content": system}] + conversation_history
-
-    full_response = ""
-    try:
-        with requests.post(
-            OLLAMA_URL,
-            json={"model": OLLAMA_MODEL, "messages": messages, "keep_alive": -1, "stream": True},
-            stream=True,
-            timeout=60
-        ) as resp:
-            resp.raise_for_status()
-            for line in resp.iter_lines():
-                if not line:
-                    continue
-                chunk = json.loads(line.decode("utf-8"))
-                token = chunk.get("message", {}).get("content", "")
-                full_response += token
-                if chunk.get("done"):
-                    break
-
-        conversation_history.append({"role": "assistant", "content": full_response})
-
-        # Nettoyage des balises markdown si le modèle en ajoute quand même
-        clean = full_response.strip()
-        if clean.startswith("```"):
-            clean = clean.split("```")[1]
-            if clean.startswith("json"):
-                clean = clean[4:]
-        clean = clean.strip()
-
-        parsed = json.loads(clean)
-        print(f"🤖  MARC JSON : {json.dumps(parsed, ensure_ascii=False)}")
-        return parsed
-
-    except json.JSONDecodeError as e:
-        print(f"❌  JSON invalide reçu d'Ollama : {e}\nRéponse brute : {full_response}")
-        return {"type": "chat", "response": "Désolé, je n'ai pas pu traiter ça correctement."}
-    except requests.exceptions.ConnectionError:
-        print("❌  Ollama inaccessible")
-        return {"type": "chat", "response": "Désolé, je n'ai pas pu traiter ça correctement."}
-    except Exception as e:
-        print(f"❌  Erreur Ollama : {e}")
-        return {"type": "chat", "response": "Désolé, je n'ai pas pu traiter ça correctement."}
-
-
-
+# ═════════════════════════════════════════════
+#  LLM — Ollama (JSON strict, version bloquante)
+# ═════════════════════════════════════════════
 def ask_ollama(user_text: str, extra_context: str = "") -> dict | None:
     """
     Envoie le texte à Ollama et retourne le JSON parsé.
     Retourne None en cas d'erreur.
     """
-
     system = SYSTEM_PROMPT
     if extra_context:
         system = SYSTEM_PROMPT + "\n\n---\n\n" + extra_context
@@ -172,11 +228,12 @@ def ask_ollama(user_text: str, extra_context: str = "") -> dict | None:
         try:
             with requests.post(
                 OLLAMA_URL,
-                json={"model": OLLAMA_MODEL, "messages": messages, "keep_alive": -1, "stream": True},
+                json={"model": OLLAMA_MODEL, "messages": messages,
+                      "keep_alive": -1, "stream": True},
                 stream=True,
-                timeout=60
+                timeout=60,
             ) as resp:
-                # 5xx = erreur serveur transitoire → retry avec backoff
+                # 5xx transitoire → retry avec backoff
                 if 500 <= resp.status_code < 600:
                     if attempt < MAX_RETRIES:
                         wait = 1.5 ** attempt
@@ -184,7 +241,8 @@ def ask_ollama(user_text: str, extra_context: str = "") -> dict | None:
                         time.sleep(wait)
                         continue
                     print(f"❌  Ollama {resp.status_code} après {MAX_RETRIES} tentatives")
-                    return {"type": "chat", "response": "Désolé, mon cerveau est temporairement indisponible. Réessayez dans un instant."}
+                    return {"type": "chat",
+                            "response": "Désolé, mon cerveau est temporairement indisponible. Réessayez dans un instant."}
 
                 resp.raise_for_status()
                 for line in resp.iter_lines():
@@ -198,7 +256,7 @@ def ask_ollama(user_text: str, extra_context: str = "") -> dict | None:
 
             conversation_history.append({"role": "assistant", "content": full_response})
 
-            # Nettoyage des balises markdown si le modèle en ajoute quand même
+            # Nettoyage des balises markdown si le modèle ajoute des fences
             clean = full_response.strip()
             if clean.startswith("```"):
                 clean = clean.split("```")[1]
@@ -220,259 +278,31 @@ def ask_ollama(user_text: str, extra_context: str = "") -> dict | None:
             print(f"❌  Erreur Ollama : {e}")
             return {"type": "chat", "response": "Désolé, je n'ai pas pu traiter ça correctement."}
 
-    return {"type": "chat", "response": "Désolé, je n'ai pas pu traiter ça correctement."}
-
-
-
-# ─────────────────────────────────────────────
-#  TTS — gTTS + mpg123 or PIPER
-# ─────────────────────────────────────────────
-
-import edge_tts
-import asyncio
-
-def speak(text: str) -> None:
-    print(f"🔊  {text[:80]}{'…' if len(text) > 80 else ''}")
-    try:
-        asyncio.run(edge_tts.Communicate(text, voice="fr-FR-HenriNeural").save("/tmp/marc_tts.mp3"))
-        subprocess.run(["mpg123", "-q", "/tmp/marc_tts.mp3"])
-        os.unlink("/tmp/marc_tts.mp3")
-    except Exception as e:
-        print(f"⚠️  TTS erreur : {e}")
-
-
-def speak1(text: str) -> None:
-    print(f"🔊  {text[:80]}{'…' if len(text) > 80 else ''}")
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-            tmp = f.name
-        gTTS(text=text, lang="fr").save(tmp)
-        subprocess.run(["mpg123", "-q", "--scale", "65536", tmp], check=False)
-        os.unlink(tmp)
-    except Exception as e:
-        print(f"⚠️  TTS erreur : {e}")
-
-
-
-PIPER_EXE   = BASE_DIR / "piper" / "piper"
-PIPER_MODEL = BASE_DIR / "piper" / "fr_FR-siwis-low.onnx"
-PIPER_DATA  = BASE_DIR / "piper" / "espeak-ng-data"
-
-import wave
-import io
-import pyaudio
-
-CHUNK = 1024
-RATE  = 16000
-
-def speak2(text: str) -> None:
-    print(f"🔊  {text[:80]}{'…' if len(text) > 80 else ''}")
-    try:
-        # 1. Génère le PCM avec piper
-        piper_proc = subprocess.Popen(
-            [
-                str(PIPER_EXE),
-                "--model",        str(PIPER_MODEL),
-                "--output-raw"
-            ],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL
-        )
-        tts_pcm, _ = piper_proc.communicate(input=text.encode())
-
-        # 2. Convertit PCM raw → WAV via sox
-        sox_proc = subprocess.Popen(
-            ["sox", "-t", "raw", "-r", "16000", "-c", "1", "-b", "16",
-             "-e", "signed-integer", "-", "-t", "wav", "-"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL
-        )
-        wav_bytes, _ = sox_proc.communicate(input=tts_pcm)
-
-        # 3. Lecture via pyaudio
-        wf     = wave.open(io.BytesIO(wav_bytes), "rb")
-        pa     = pyaudio.PyAudio()
-        stream = pa.open(
-            format=pa.get_format_from_width(wf.getsampwidth()),
-            channels=wf.getnchannels(),
-            rate=wf.getframerate(),
-            output=True
-        )
-        data = wf.readframes(CHUNK)
-        while data:
-            stream.write(data)
-            data = wf.readframes(CHUNK)
-
-        stream.stop_stream()
-        stream.close()
-        pa.terminate()
-        wf.close()
-
-    except Exception as e:
-        print(f"⚠️  TTS erreur : {e}")
-
-
-# ═════════════════════════════════════════════
-#  TTS EN FLUX  (edge-tts → mpg123, phrase par phrase)
-# ═════════════════════════════════════════════
-TTS_VOICE = "fr-FR-HenriNeural"
-
-
-class TTSPlayer:
-    """
-    Lecteur vocal en flux.
-
-    On enfile des phrases avec .say(texte) ; un thread worker les synthétise
-    et les joue dans l'ordre (FIFO), une à la fois. Chaque phrase est elle-même
-    streamée : edge-tts produit des morceaux MP3 écrits directement dans
-    l'entrée standard de mpg123, donc la lecture commence avant la fin de la
-    synthèse. Combiné au LLM streamé, MARC parle pendant qu'il « réfléchit ».
-    """
-
-    def __init__(self, voice: str = TTS_VOICE):
-        self.voice = voice
-        self._q: "queue.Queue[str]" = queue.Queue()
-        self._worker = threading.Thread(target=self._run, daemon=True)
-        self._worker.start()
-
-    def say(self, text: str) -> None:
-        text = (text or "").strip()
-        if text:
-            self._q.put(text)
-
-    def wait(self) -> None:
-        """Bloque jusqu'à ce que toutes les phrases en file soient jouées."""
-        self._q.join()
-
-    def _run(self) -> None:
-        while True:
-            text = self._q.get()
-            try:
-                asyncio.run(self._speak_stream(text))
-            except Exception as e:
-                print(f"⚠️  TTS erreur : {e}")
-            finally:
-                self._q.task_done()
-
-    async def _speak_stream(self, text: str) -> None:
-        print(f"🔊  {text[:80]}{'…' if len(text) > 80 else ''}")
-        player = subprocess.Popen(
-            ["mpg123", "-q", "-"],          # « - » = lit le flux MP3 sur stdin
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        try:
-            communicate = edge_tts.Communicate(text, voice=self.voice)
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio" and chunk.get("data"):
-                    player.stdin.write(chunk["data"])
-            if player.stdin:
-                player.stdin.close()
-        finally:
-            player.wait()
-
-
-# ═════════════════════════════════════════════
-#  EXTRACTION EN FLUX DU CHAMP "response" DU JSON
-# ═════════════════════════════════════════════
-class ResponseStreamer:
-    """
-    Extrait à la volée le texte de la clé "response" d'un flux JSON généré
-    token par token par le LLM, et émet chaque phrase complète via le callback
-    `on_sentence`. C'est ce qui permet de faire parler MARC AVANT la fin de la
-    génération, sans casser le parse JSON final (type / action / paramètres).
-    """
-
-    _OPEN = re.compile(r'"response"\s*:\s*"')
-
-    def __init__(self, on_sentence):
-        self._on_sentence = on_sentence
-        self.buf = ""           # flux JSON brut accumulé (pour le parse final)
-        self._start = None      # index du début de la valeur "response"
-        self._pos = None        # prochain index à analyser
-        self._pending = ""      # phrase en cours (pas encore émise)
-        self._decoded = ""      # texte "response" décodé complet (fallback)
-        self._escape = False
-        self._closed = False
-        self.spoke = False      # True dès qu'au moins une phrase a été émise
-
-    def feed(self, token: str) -> None:
-        self.buf += token
-        if self._start is None:
-            m = self._OPEN.search(self.buf)
-            if not m:
-                return
-            self._start = m.end()
-            self._pos = self._start
-        self._scan()
-
-    def _scan(self) -> None:
-        if self._closed:
-            return
-        n = len(self.buf)
-        while self._pos < n:
-            ch = self.buf[self._pos]
-            self._pos += 1
-            if self._escape:
-                u = self._unescape(ch)
-                self._pending += u
-                self._decoded += u
-                self._escape = False
-                continue
-            if ch == "\\":
-                self._escape = True
-                continue
-            if ch == '"':                       # guillemet fermant → fin de "response"
-                self._flush()
-                self._closed = True
-                return
-            self._pending += ch
-            self._decoded += ch
-            # Frontière de phrase : ponctuation forte, en évitant les décimales
-            if ch in "!?…\n":
-                self._flush()
-            elif ch == "." and not self._pending[-2:-1].isdigit():
-                self._flush()
-
-    @staticmethod
-    def _unescape(ch: str) -> str:
-        return {"n": "\n", "t": "\t", "r": "", '"': '"', "\\": "\\", "/": "/"}.get(ch, ch)
-
-    def _flush(self) -> None:
-        s = self._pending.strip()
-        self._pending = ""
-        if s:
-            self.spoke = True
-            self._on_sentence(s)
-
-    def finalize(self) -> None:
-        """Flux tronqué (pas de guillemet fermant reçu) → émet le reliquat."""
-        if not self._closed:
-            self._flush()
-
-    @property
-    def text(self) -> str:
-        return self._decoded.strip()
+    return {"type": "chat",
+            "response": "Désolé, mon cerveau est temporairement indisponible."}
 
 
 # ═════════════════════════════════════════════
 #  LLM — Ollama EN FLUX (parle pendant la génération)
+#  Procédural : l'état du parseur est local à la fonction.
 # ═════════════════════════════════════════════
+
+# Repère le début de la valeur de la clé "response" dans le JSON streamé
+_RESPONSE_OPEN = re.compile(r'"response"\s*:\s*"')
+
+# Décode les séquences d'échappement JSON les plus courantes
+_ESCAPE_MAP = {"n": "\n", "t": "\t", "r": "", '"': '"', "\\": "\\", "/": "/"}
+
+
 def ask_ollama_stream(user_text: str, on_sentence, extra_context: str = "") -> dict:
     """
-    Version STREAMING de ask_ollama().
+    Streaming Ollama : on extrait au fil de l'eau le contenu de la clé
+    "response" et on appelle on_sentence(phrase) pour chaque phrase complète.
+    Le markdown est nettoyé avant l'appel.
 
-    Dès qu'Ollama envoie des tokens, on extrait au vol le contenu de la clé
-    "response" et on appelle `on_sentence(phrase)` pour chaque phrase terminée.
-    Le consommateur décide quoi en faire : le faire dire par MARC
-    (TTSPlayer.say), le pousser au navigateur via SSE, ou les deux.
-
-    Retourne le dict JSON complet (type / response / action / paramètres),
-    avec une clé interne "_spoke" indiquant si la réponse a déjà été émise
-    (pour éviter de la répéter chez l'appelant).
+    Retourne le dict JSON parsé en fin de flux (type / response / action /
+    paramètres) avec une clé "_spoke" indiquant si au moins une phrase a
+    déjà été émise (pour éviter de la répéter chez l'appelant).
     """
     system = SYSTEM_PROMPT
     if extra_context:
@@ -484,16 +314,72 @@ def ask_ollama_stream(user_text: str, on_sentence, extra_context: str = "") -> d
     MAX_RETRIES = 3
 
     for attempt in range(1, MAX_RETRIES + 1):
+        # ── État local du parseur (ex-ResponseStreamer, mis à plat) ──
+        buf = ""           # JSON brut accumulé (pour le parse final)
+        start = None       # index du début de la valeur "response"
+        pos = None         # curseur dans la valeur
+        pending = ""       # phrase en cours, pas encore émise
+        decoded = ""       # response complète décodée (filet de sécurité)
+        escape = False
+        closed = False
+        spoke = False
+
+        def flush() -> None:
+            """Émet la phrase courante via on_sentence après nettoyage markdown."""
+            nonlocal pending, spoke
+            s = _strip_markdown(pending.strip())
+            pending = ""
+            if s:
+                spoke = True
+                on_sentence(s)
+
+        def consume(token: str) -> None:
+            """Accumule un token et fait avancer le parseur sur la valeur "response"."""
+            nonlocal buf, start, pos, pending, decoded, escape, closed
+            buf += token
+            if closed:
+                return
+            if start is None:
+                m = _RESPONSE_OPEN.search(buf)
+                if not m:
+                    return
+                start = m.end()
+                pos = start
+            n = len(buf)
+            while pos < n:
+                ch = buf[pos]
+                pos += 1
+                if escape:
+                    u = _ESCAPE_MAP.get(ch, ch)
+                    pending += u
+                    decoded += u
+                    escape = False
+                    continue
+                if ch == "\\":
+                    escape = True
+                    continue
+                if ch == '"':                     # guillemet fermant → fin de "response"
+                    flush()
+                    closed = True
+                    return
+                pending += ch
+                decoded += ch
+                # Frontière de phrase (en évitant les décimales du genre 1.5)
+                if ch in "!?…\n":
+                    flush()
+                elif ch == "." and not pending[-2:-1].isdigit():
+                    flush()
+
         full_response = ""
-        streamer = ResponseStreamer(on_sentence=on_sentence)
         try:
             with requests.post(
                 OLLAMA_URL,
-                json={"model": OLLAMA_MODEL, "messages": messages, "keep_alive": -1, "stream": True},
+                json={"model": OLLAMA_MODEL, "messages": messages,
+                      "keep_alive": -1, "stream": True},
                 stream=True,
                 timeout=60,
             ) as resp:
-                # 5xx transitoire → retry tant qu'aucun token n'a encore été lu
+                # 5xx transitoire → retry tant qu'aucun token n'a été lu
                 if 500 <= resp.status_code < 600:
                     if attempt < MAX_RETRIES:
                         wait = 1.5 ** attempt
@@ -509,18 +395,24 @@ def ask_ollama_stream(user_text: str, on_sentence, extra_context: str = "") -> d
                 for line in resp.iter_lines():
                     if not line:
                         continue
-                    chunk = json.loads(line.decode("utf-8"))
+                    try:
+                        chunk = json.loads(line.decode("utf-8"))
+                    except json.JSONDecodeError:
+                        continue
                     token = chunk.get("message", {}).get("content", "")
+                    full_response += token
                     if token:
-                        full_response += token
-                        streamer.feed(token)        # ← peut déclencher tts.say(...)
+                        consume(token)
                     if chunk.get("done"):
                         break
 
-            streamer.finalize()                     # émet l'éventuelle dernière phrase
+            # Flux terminé sans guillemet fermant → on émet le reliquat
+            if not closed:
+                flush()
+
+            # ── Parse final du JSON complet ──
             conversation_history.append({"role": "assistant", "content": full_response})
 
-            # Parse JSON complet → type / action / paramètres
             clean = full_response.strip()
             if clean.startswith("```"):
                 clean = clean.split("```")[1]
@@ -528,32 +420,30 @@ def ask_ollama_stream(user_text: str, on_sentence, extra_context: str = "") -> d
                     clean = clean[4:]
             clean = clean.strip()
 
-            parsed = json.loads(clean)
-            parsed["_spoke"] = streamer.spoke
-            shown = {k: v for k, v in parsed.items() if k != "_spoke"}
-            print(f"🤖  MARC JSON : {json.dumps(shown, ensure_ascii=False)}")
+            try:
+                parsed = json.loads(clean)
+            except json.JSONDecodeError:
+                # Filet de sécurité : on garde au moins ce qu'on a décodé en "response"
+                parsed = {"type": "chat",
+                          "response": decoded.strip() or full_response.strip()}
+
+            parsed["_spoke"] = spoke
+            print(f"🤖  MARC JSON : {json.dumps(parsed, ensure_ascii=False)}")
             return parsed
 
-        except json.JSONDecodeError as e:
-            print(f"❌  JSON invalide reçu d'Ollama : {e}\nRéponse brute : {full_response}")
-            # On a peut-être quand même lu/parlé du texte exploitable
-            fallback = streamer.text or "Désolé, je n'ai pas pu traiter ça correctement."
-            if not streamer.spoke:
-                on_sentence(fallback)
-            return {"type": "chat", "response": fallback, "_spoke": True}
         except requests.exceptions.ConnectionError:
             print("❌  Ollama inaccessible")
             return {"type": "chat",
                     "response": "Désolé, je n'ai pas pu traiter ça correctement.",
-                    "_spoke": False}
+                    "_spoke": spoke}
         except Exception as e:
             print(f"❌  Erreur Ollama : {e}")
             return {"type": "chat",
                     "response": "Désolé, je n'ai pas pu traiter ça correctement.",
-                    "_spoke": False}
+                    "_spoke": spoke}
 
     return {"type": "chat",
-            "response": "Désolé, je n'ai pas pu traiter ça correctement.",
+            "response": "Désolé, mon cerveau est temporairement indisponible.",
             "_spoke": False}
 
 
@@ -561,18 +451,14 @@ def ask_ollama_stream(user_text: str, on_sentence, extra_context: str = "") -> d
 #  ENVOI COMMANDE AU SERVEUR
 # ─────────────────────────────────────────────
 def send_command_to_server(payload: dict) -> bool:
-    """
-    Envoie le payload JSON au serveur Flask /vocal_command.
-    Retourne True si succès.
-    """
+    """Envoie le payload JSON au serveur Flask /vocal_command."""
     try:
         resp = requests.post(
             f"{SERVER_URL}/vocal_command",
             json=payload,
             timeout=10,
-            verify=False  # certificat auto-signé
+            verify=False,  # certificat auto-signé
         )
-
         resp.raise_for_status()
         print(f"✅  Serveur : {resp.json()}")
         return True
@@ -582,7 +468,7 @@ def send_command_to_server(payload: dict) -> bool:
 
 
 # ─────────────────────────────────────────────
-#  BOUCLE PRINCIPALE
+#  BOUCLE PRINCIPALE (exécution autonome du fichier)
 # ─────────────────────────────────────────────
 def main():
     print("\n╔══════════════════════════════════════════════════╗")
@@ -605,8 +491,6 @@ def main():
 
     calibrate_mic()
 
-    tts = TTSPlayer()          # lecteur vocal en flux (thread worker FIFO)
-
     state = STATE_IDLE
     print("\n😴  En attente de 'Salut Marc'…\n")
 
@@ -622,8 +506,7 @@ def main():
                     print(f"🟢  Wake word détecté : '{text}'")
                     state = STATE_ACTIVE
                     conversation_history.clear()
-                    tts.say("Oui, je vous écoute.")
-                    tts.wait()        # finir de parler avant de réécouter
+                    speak("Oui, je vous écoute.", wait=True)
                     print("💬  Mode actif — dites 'Merci' pour terminer\n")
                 else:
                     print(f"\r😴  (ignoré : '{text}')", end="", flush=True)
@@ -634,29 +517,25 @@ def main():
 
                 # Mot de stop → retour en veille
                 if any(w in text for w in STOP_WORDS):
-                    tts.say("De rien, à bientôt !")
-                    tts.wait()
+                    speak("De rien, à bientôt !", wait=True)
                     state = STATE_IDLE
                     conversation_history.clear()
-                    # Notifier le serveur du shutdown propre
-                    send_command_to_server({"type": "commande", "action": "shutdown", "response": "Mise en veille."})
+                    send_command_to_server({"type": "commande", "action": "shutdown",
+                                            "response": "Mise en veille."})
                     print("\n😴  En attente de 'Salut Marc'…\n")
                     continue
 
                 # LLM EN FLUX : MARC parle déjà pendant la génération
-                result = ask_ollama_stream(text, tts.say)
-                spoke = result.pop("_spoke", False)     # réponse déjà dite ?
+                result = ask_ollama_stream(text, speak)
+                spoke = result.pop("_spoke", False)
                 response_text = result.get("response", "")
 
                 if result.get("type") == "commande":
-                    # La confirmation a (en général) déjà été dite en flux ;
-                    # on envoie ensuite la commande au serveur.
                     sent = send_command_to_server(result)
                     if not sent:
-                        tts.say("Je n'ai pas pu exécuter la commande.")
+                        speak("Je n'ai pas pu exécuter la commande.")
                     elif not spoke and response_text:
-                        tts.say(response_text)
-                    # Shutdown → retour en veille
+                        speak(response_text)
                     if result.get("action") == "shutdown":
                         state = STATE_IDLE
                         conversation_history.clear()
@@ -664,16 +543,16 @@ def main():
 
                 elif result.get("type") == "chat":
                     if not spoke and response_text:
-                        tts.say(response_text)
+                        speak(response_text)
 
                 else:
                     print(f"⚠️  Type inconnu : {result.get('type')}")
                     if not spoke and response_text:
-                        tts.say(response_text)
+                        speak(response_text)
 
                 # Attendre la fin de la parole avant de réécouter
                 # (évite que le micro capte la voix de MARC)
-                tts.wait()
+                speak("", wait=True)  # ne dit rien mais attend la file
 
         except KeyboardInterrupt:
             print("\n\n👋  Arrêt.")

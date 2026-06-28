@@ -19,7 +19,7 @@ from flask import Flask, request, jsonify, send_from_directory, Response
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(os.path.join(ROOT, "assistantVocale"))
 sys.path.append(os.path.join(ROOT, "matrixLed"))
-from voiceAssistant import speak, ask_ollama, ask_ollama_stream, TTSPlayer, recognizer
+from voiceAssistant import speak, ask_ollama, ask_ollama_stream, recognizer
 
 # ── Matrix LED (optionnel) ──
 try:
@@ -294,16 +294,13 @@ def send_mode(enabled: bool):
 
 TMP_DIR = tempfile.gettempdir()
 
-# Lecteur vocal EN FLUX partagé : un seul chemin audio (haut-parleur du Pi),
-# file FIFO, synthèse edge-tts streamée vers mpg123.
-web_tts = TTSPlayer()
 
 
 def tts(text: str) -> None:
     """Énoncé court mono-bloc (ex. « Je n'ai pas compris »)."""
     if eyes: eyes.play("neutral")
     broadcast_speech(text)
-    web_tts.say(text)
+    speak(text)
 
 
 def speak_and_act_streaming(user_text: str, extra_context: str = "") -> dict:
@@ -321,7 +318,7 @@ def speak_and_act_streaming(user_text: str, extra_context: str = "") -> dict:
     broadcast("speech_start", {})
 
     def on_sentence(sentence: str) -> None:
-        web_tts.say(sentence)                                   # Pi parle (en flux)
+        speak(sentence)                                                # Pi parle (en flux)
         broadcast("speech", {"text": sentence, "partial": True})  # navigateur
 
     result = ask_ollama_stream(user_text, on_sentence, extra_context=extra_context)

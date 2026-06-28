@@ -71,7 +71,7 @@ GIF_DIR = os.path.join(ROOT, "matrixLed")
 
 sys.path.append(os.path.join(ROOT, "assistantVocale"))
 
-from voiceAssistant import speak, ask_ollama, ask_ollama_stream, TTSPlayer, recognizer  # noqa: E402
+from voiceAssistant import speak, ask_ollama, ask_ollama_stream, recognizer  # noqa: E402
 
 # La matrice LED n'est PLUS pilotée ici : elle appartient à led_node.
 # Le webbridge publie des expressions sur /led_expression (voir set_led).
@@ -110,10 +110,6 @@ class WebBridgeNode(Node):
         self.sse_clients: list[queue.Queue] = []
         self.sse_lock = threading.Lock()
 
-        # ── TTS en flux ──
-        # Lecteur vocal partagé : file FIFO, synthèse edge-tts streamée vers
-        # mpg123 (un seul chemin audio sur le haut-parleur du Pi).
-        self.tts_player = TTSPlayer()
 
         # ── Publishers ROS2 ──
         # /cmd_motor pour le pilotage manuel (route /motor de Flask).
@@ -322,7 +318,7 @@ class WebBridgeNode(Node):
         """Énoncé court mono-bloc (ex. « Je n'ai pas compris »)."""
         self.set_led("neutral")
         self.broadcast_speech(text)
-        self.tts_player.say(text)
+        speak(text)
 
     def speak_and_act_streaming(self, user_text: str, extra_context: str = "") -> dict:
         """
@@ -338,7 +334,7 @@ class WebBridgeNode(Node):
         self.broadcast("speech_start", {})
 
         def on_sentence(sentence: str):
-            self.tts_player.say(sentence)                                # Pi parle
+            speak(sentence)                                                # Pi parle
             self.broadcast("speech", {"text": sentence, "partial": True})  # navigateur
 
         result = ask_ollama_stream(user_text, on_sentence, extra_context=extra_context)
