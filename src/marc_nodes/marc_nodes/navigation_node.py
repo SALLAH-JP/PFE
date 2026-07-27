@@ -43,10 +43,10 @@ GOAL_TOLERANCE_M = 0.25     # distance à laquelle on considère le point attein
 ANGLE_TOLERANCE  = 15       # au-delà : rotation sur place avant d'avancer (deg)
 HEADING_TOLERANCE = 8       # tolérance sur le cap final à l'arrivée (deg)
 KP_TURN          = 3.0      # gain proportionnel de correction de cap
-TURN_SPEED       = 150       # consigne de rotation sur place
-FORWARD_SPEED    = 300      # consigne d'avance
+TURN_SPEED       = 50       # consigne de rotation sur place
+FORWARD_SPEED    = 200      # consigne d'avance
 MAX_LOST         = 20       # cycles sans pose avant d'abandonner
-SCAN_TURN_SPEED  = 75       # vitesse de rotation du scan de localisation
+SCAN_TURN_SPEED  = 50       # vitesse de rotation du scan de localisation
 SCAN_TIMEOUT_S   = 40       # abandon du scan si aucun marqueur trouvé (s)
 
 

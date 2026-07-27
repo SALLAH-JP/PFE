@@ -49,8 +49,8 @@ STATION_POS: dict[str, tuple[float, float] | None] = {
     "vector": (-1.5, 4.9),
     "pepper": None,   # TODO
     "imp3d":  None,   # TODO
-    "baxter": (1.8, 1.8),
-    "bras":   (1.8, -0.6),
+    "baxter": (1.3, 1.8),
+    "bras":   (1.3, -0.6),
 }
 
 
